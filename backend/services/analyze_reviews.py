@@ -103,7 +103,15 @@ def analyze_reviews(file_path, dimensions, openai_key, job_id=None, progress_cal
     from datetime import datetime
     
     try:
-        df = pd.read_csv(file_path)
+        if os.path.exists(file_path):
+            df = pd.read_csv(file_path)
+        else:
+            # Assume file_path is S3 Key
+            s3_bucket = os.getenv("S3_BUCKET_NAME", "horus-voc-data-storage-v2-eu")
+            logger.info(f"Reading from S3: {file_path}")
+            s3 = boto3.client('s3', region_name=os.getenv("AWS_REGION", "eu-central-1"))
+            obj = s3.get_object(Bucket=s3_bucket, Key=file_path)
+            df = pd.read_csv(obj['Body'])
     except Exception as e:
         return {"error": f"Could not read file: {e}"}
         

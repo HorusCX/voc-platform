@@ -488,8 +488,18 @@ async def api_scrapped_data2(request: dict):
         return {"error": "Missing job_id or s3_key"}
         
     try:
+    try:
         # Read sample
-        df = pd.read_csv(file_path)
+        if os.path.exists(file_path):
+            df = pd.read_csv(file_path)
+        elif s3_key:
+             # Fallback to S3
+             logger.info(f"Local file {file_path} not found, reading from S3: {s3_key}")
+             s3 = boto3.client('s3', region_name=AWS_REGION)
+             obj = s3.get_object(Bucket=S3_BUCKET_NAME, Key=s3_key)
+             df = pd.read_csv(obj['Body'])
+        else:
+             raise FileNotFoundError(f"File not found locally ({file_path}) and no s3_key provided")
         # Replace NaN/Infinity values for JSON serialization
         sample_df = df.sample(n=min(10, len(df))).fillna('').replace([float('inf'), float('-inf')], '')
         sample = sample_df.to_dict(orient='records')
