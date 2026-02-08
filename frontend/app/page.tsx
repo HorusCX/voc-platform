@@ -14,12 +14,6 @@ export default function Home() {
               Automated Review Analysis &amp; Insight Generation
             </p>
           </div>
-          <Link
-            href="/dashboard"
-            className="bg-teal-500 hover:bg-teal-600 text-white px-6 py-3 rounded-lg font-bold shadow-md transition-colors"
-          >
-            📊 Dashboard
-          </Link>
         </div>
       </div>
 
