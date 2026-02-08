@@ -110,105 +110,59 @@ async def root():
 
 @app.post("/api/analyze-website")
 async def api_analyze_website(request: WebsiteRequest):
-    if not GEMINI_API_KEY:
-        raise HTTPException(status_code=500, detail="Gemini API Key not configured")
+    job_id = str(uuid.uuid4())
     
-    # Use Gemini for website analysis
-    result = analyze_url(request.website, GEMINI_API_KEY)
-    if "error" in result:
-        # Check if result is a list with error or dict with error, analyze_url returns list or dict depending on success/fail
-        # implementation says returns list of companies OR list with error dict OR dict with error? 
-        # My implementation returned [{"error": ...}] on exception.
-        # Let's adjust safety check.
-        if isinstance(result, dict) and "error" in result:
-             raise HTTPException(status_code=500, detail=result["error"])
-        elif isinstance(result, list) and len(result) > 0 and "error" in result[0]:
-             raise HTTPException(status_code=500, detail=result[0]["error"])
-             
-    return result
-
-@app.post("/api/discover-maps")
-async def api_discover_maps(request: Company):
-    if not GEMINI_API_KEY:
-        raise HTTPException(status_code=500, detail="Gemini API Key not configured")
-        
-    company_name = request.company_name
-    website = request.website
-    
-    if not company_name:
-         raise HTTPException(status_code=400, detail="Company name is required")
-         
-    # Discover locations (returns list of {place_id, name, url} objects)
-    locations = discover_maps_links(company_name, website)
-    
-    return {"locations": locations}
-
-@app.post("/api/appids")
-async def api_appids(companies: List[Company]):
-    # Convert Pydantic models to dicts, excluding nulls to avoid UI clutter
-    valid_companies = [c.dict(exclude_none=True) for c in companies]
-    result = resolve_app_ids(valid_companies, OPENAI_API_KEY)
-    return result
-
-@app.post("/api/scrap-reviews")
-async def api_scrap_reviews(request: ScrapRequest):
-    job_id = request.job_id or str(uuid.uuid4())
-    
-    # Initialize Job Status locally (will be updated by worker if we had a DB)
-    JOBS[job_id] = {
-        "status": "pending",
-        "message": "Queued for processing",
-        "created_at": str(datetime.now())
-    }
-    
-    # Validation
-    brands_list = [b.dict() for b in request.brands]
-    
-    # --- ASYNC CHANGE: Push to SQS ---
+    # Push to SQS
     if SQS_QUEUE_URL:
         try:
             queue_service = QueueService(region_name=AWS_REGION)
             message_body = {
-                "task_type": "scraping",
+                "task_type": "analyze_website",
                 "job_id": job_id,
-                "brands_list": brands_list
+                "website": request.website
             }
             queue_service.send_message(SQS_QUEUE_URL, message_body)
-            JOBS[job_id]["message"] = "Job pushed to SQS Queue"
-            logger.info(f"✅ Scraping Job {job_id} pushed to SQS")
-            
+            logger.info(f"✅ Website Analysis Job {job_id} pushed to SQS")
         except Exception as e:
             logger.error(f"❌ Failed to push to SQS: {e}")
-            JOBS[job_id]["status"] = "failed"
-            JOBS[job_id]["message"] = "Failed to queue job"
             raise HTTPException(status_code=500, detail="Failed to queue job")
     else:
-        # Fallback for local dev without SQS configured 
-        # (Though we should force SQS setup per plan, let's keep it robust)
-        logger.warning("⚠️ SQS_QUEUE_URL not set. Running in background task (Not recommended for prod).")
-        # We can't access BackgroundTasks here easily without dependency injection change
-        # For now, just error out or warn. 
-        # Actually, let's assume SQS is configured as per requirement.
+        # Fallback for local dev (synchronous if no queue - but we know user has queue)
+        # For strict async compliance, we should error or warn. 
+        # Given the timeout issue, we MUST use SQS.
         raise HTTPException(status_code=500, detail="SQS_QUEUE_URL not configured")
-    
-    return {"message": "Scraping started (Async)", "job_id": job_id}
+             
+    return {"job_id": job_id, "status": "pending"}
 
 @app.get("/api/check-status")
 async def check_status(job_id: str):
-    # TODO: In real production, this needs to query a DB that the Worker updates.
-    # For now, we return the local status which might be stale if worker is remote.
-    # But since we are decoupling, the frontend might need to poll S3 or a DB.
-    # For this phase, we'll return what we have locally + maybe check S3?
+    # 1. Check if it's a scraping job or analysis job
+    # For simplicity, we check S3 for both patterns.
     
+    s3_client = boto3.client('s3', region_name=AWS_REGION)
+    
+    # Path A: Website Analysis Result
+    analysis_key = f"analysis_results/{job_id}.json"
+    try:
+        response = s3_client.get_object(Bucket=S3_BUCKET_NAME, Key=analysis_key)
+        data = json.loads(response['Body'].read().decode('utf-8'))
+        return {
+            "status": "completed",
+            "result": data
+        }
+    except s3_client.exceptions.NoSuchKey:
+        pass # Not found, check next path
+    except Exception as e:
+        logger.error(f"Error checking analysis status: {e}")
+
+    # Path B: Scraping Job (Existing)
+    # We check local JOBS dict first (legacy/local support) or S3
     job = JOBS.get(job_id)
     if not job:
-        # Try to find file in S3 to see if it's done?
-        # This is a hack for "stateless" status checking
+        # Check S3 for scraping result
         s3_key = f"scrapped_data/{job_id}.csv"
         try:
-            s3 = boto3.client('s3', region_name=AWS_REGION)
-            s3.head_object(Bucket=S3_BUCKET_NAME, Key=s3_key)
-            # If found, it's done
+            s3_client.head_object(Bucket=S3_BUCKET_NAME, Key=s3_key)
             return {
                 "status": "completed",
                 "message": "Job finished (found in S3)",
@@ -216,9 +170,10 @@ async def check_status(job_id: str):
                 "csv_download_url": generate_presigned_url(s3_key)
             }
         except:
-            raise HTTPException(status_code=404, detail="Job not found (and not in S3)")
+             # If neither found
+             return {"status": "pending", "message": "Job processing..."}
     
-    # Refresh presigned URL if s3_key exists
+    # Refresh presigned URL if s3_key exists (from local JOBS cache)
     if job.get("s3_key"):
         url = generate_presigned_url(job["s3_key"])
         if url:

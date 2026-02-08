@@ -45,6 +45,42 @@ def process_message(message_body):
         result = run_scraper_service(job_id, brands_list, progress_callback)
         logger.info(f"✅ Scraping completed. Result S3 Key: {result.get('s3_key')}")
         
+    elif task_type == "analyze_website":
+        logger.info(f"🔍 Processing WEBSITE ANALYSIS task: {message_body.get('job_id')}")
+        job_id = message_body.get("job_id")
+        website = message_body.get("website")
+        
+        # Load Gemini Key
+        gemini_key = os.getenv("GEMINI_API_KEY")
+        if not gemini_key:
+             logger.error("❌ Gemini API Key missing for website analysis")
+             return
+
+        try:
+            from services.fetch_company_metadata import analyze_url
+            import boto3
+            
+            # Execute Gemini analysis
+            result = analyze_url(website, gemini_key)
+            
+            # Save to S3
+            s3_bucket = os.getenv("S3_BUCKET_NAME")
+            if s3_bucket:
+                s3_key = f"analysis_results/{job_id}.json"
+                s3 = boto3.client('s3', region_name=AWS_REGION)
+                s3.put_object(
+                    Bucket=s3_bucket,
+                    Key=s3_key,
+                    Body=json.dumps(result),
+                    ContentType='application/json'
+                )
+                logger.info(f"✅ Website analysis saved to s3://{s3_bucket}/{s3_key}")
+            else:
+                 logger.error("❌ S3 Bucket not configured")
+                 
+        except Exception as e:
+            logger.error(f"❌ Website analysis failed: {e}")
+
     elif task_type == "analysis":
         logger.info(f"🧠 Processing ANALYSIS task: {message_body.get('file_path')}")
         file_path = message_body.get("file_path")

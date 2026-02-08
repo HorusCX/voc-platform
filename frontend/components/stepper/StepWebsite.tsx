@@ -29,13 +29,47 @@ export function StepWebsite({ onComplete }: StepWebsiteProps) {
         setError(null);
 
         try {
-            const data = await VoCService.analyzeWebsite(url);
-            onComplete(data);
+            // 1. Submit Job
+            const response: any = await VoCService.analyzeWebsite(url);
+
+            if (response.job_id) {
+                // Async Flow: Poll for result
+                const jobId = response.job_id;
+                let attempts = 0;
+                const maxAttempts = 30; // 60 seconds (2s interval)
+
+                const pollInterval = setInterval(async () => {
+                    attempts++;
+                    try {
+                        const status: any = await VoCService.checkStatus(jobId);
+
+                        if (status.status === 'completed' && status.result) {
+                            clearInterval(pollInterval);
+                            setLoading(false);
+                            onComplete(status.result);
+                        } else if (attempts >= maxAttempts) {
+                            clearInterval(pollInterval);
+                            setLoading(false);
+                            setError("Analysis timed out. Please try again.");
+                        }
+                    } catch (e) {
+                        console.error("Polling error", e);
+                        // Don't stop polling on transient error? or stop?
+                        // For now let's continue unless max attempts
+                    }
+                }, 2000);
+            } else {
+                // Sync Flow (Legacy support or if backend changed back)
+                onComplete(response);
+                setLoading(false);
+            }
+
         } catch (err) {
             console.error(err);
             setError("Failed to analyze website. Please check the URL and try again.");
-        } finally {
             setLoading(false);
+        } finally {
+            // setLoading(false) moved inside polling logic for async case
         }
     };
 
