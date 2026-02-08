@@ -122,9 +122,16 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
             <Card className="max-w-xl mx-auto text-center py-12">
                 <Loader2 className="h-12 w-12 text-calo-primary animate-spin mx-auto mb-4" />
                 <h2 className="text-xl font-semibold mb-2">Scraping in Progress...</h2>
-                <p className="text-calo-text-secondary animate-pulse">{data?.message || "Initializing..."}</p>
-                <p className="text-xs text-calo-text-secondary mt-4">This usually takes 3-5 minutes. You can leave this page open.</p>
-                <p className="text-xs text-calo-text-secondary mt-4">Job ID: {jobId}</p>
+                <div className="bg-slate-50 p-4 rounded-md border border-slate-100 max-w-sm mx-auto">
+                    <p className="text-calo-text-secondary animate-pulse text-sm font-medium">
+                        {data?.message || "Initializing job..."}
+                    </p>
+                </div>
+                <p className="text-xs text-calo-text-secondary mt-6">
+                    This usually takes 3-5 minutes depending on the number of reviews.
+                    <br />You can leave this page open.
+                </p>
+                <div className="mt-4 text-xs text-slate-400 font-mono">Job ID: {jobId}</div>
             </Card>
         );
     }

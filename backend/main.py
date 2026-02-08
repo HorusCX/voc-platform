@@ -167,7 +167,15 @@ async def check_status(job_id: str):
                 "result": data
             }
         except s3_client.exceptions.NoSuchKey:
-            return {"status": "processing", "message": "Discovering locations..."}
+             # Check for progress status
+            try:
+                progress_key = f"processing_status/{job_id}.json"
+                response = s3_client.get_object(Bucket=S3_BUCKET_NAME, Key=progress_key)
+                progress_data = json.loads(response['Body'].read().decode('utf-8'))
+                return progress_data # {"status": "running", "message": "...", "job_id": ...}
+            except:
+                return {"status": "processing", "message": "Discovering locations..."}
+
         except Exception as e:
             logger.error(f"Error checking discovery status: {e}")
             return {"status": "error", "message": str(e)}
@@ -187,8 +195,15 @@ async def check_status(job_id: str):
                 "csv_download_url": generate_presigned_url(s3_key)
             }
         except:
-             # If neither found
-             return {"status": "pending", "message": "Job processing..."}
+             # Check for progress status
+             try:
+                progress_key = f"processing_status/{job_id}.json"
+                response = s3_client.get_object(Bucket=S3_BUCKET_NAME, Key=progress_key)
+                progress_data = json.loads(response['Body'].read().decode('utf-8'))
+                return progress_data
+             except:
+                 # If neither found
+                 return {"status": "pending", "message": "Job processing..."}
     
     # Refresh presigned URL if s3_key exists (from local JOBS cache)
     if job.get("s3_key"):

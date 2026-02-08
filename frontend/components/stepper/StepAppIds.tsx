@@ -17,6 +17,7 @@ export function StepAppIds({ initialData, onComplete }: StepAppIdsProps) {
 
     // State to track which item is currently discovering maps
     const [discoveringIndex, setDiscoveringIndex] = useState<number | null>(null);
+    const [discoveryStatus, setDiscoveryStatus] = useState<string>("");
 
     // State for new link inputs (map of index -> string)
     const [newLinkInputs, setNewLinkInputs] = useState<{ [key: number]: string }>({});
@@ -55,6 +56,7 @@ export function StepAppIds({ initialData, onComplete }: StepAppIdsProps) {
 
         console.log(`🔍 Starting discovery for ${item.company_name} (index: ${index})`);
         setDiscoveringIndex(index);
+        setDiscoveryStatus("Starting...");
         try {
             // Step 1: Start discovery job (returns immediately with job_id)
             const { job_id } = await VoCService.discoverMapsLinks(
@@ -69,6 +71,10 @@ export function StepAppIds({ initialData, onComplete }: StepAppIdsProps) {
                 try {
                     const statusData = await VoCService.checkStatus(job_id);
                     console.log(`📊 Poll status for ${item.company_name}:`, statusData.status);
+
+                    if (statusData.status === "running" && statusData.message) {
+                        setDiscoveryStatus(statusData.message);
+                    }
 
                     if (statusData.status === "completed") {
                         clearInterval(pollInterval);
@@ -119,11 +125,13 @@ export function StepAppIds({ initialData, onComplete }: StepAppIdsProps) {
                         });
 
                         setDiscoveringIndex(null);
+                        setDiscoveryStatus("");
 
                     } else if (statusData.status === "error") {
                         clearInterval(pollInterval);
                         console.error("Discovery error:", statusData.message);
                         setDiscoveringIndex(null);
+                        setDiscoveryStatus("");
                     }
                     // else: still processing, keep polling
 
@@ -133,12 +141,16 @@ export function StepAppIds({ initialData, onComplete }: StepAppIdsProps) {
                 }
             }, 3000); // Poll every 3 seconds
 
-            // Timeout after 2 minutes
+            // Timeout after 5 minutes (increased from 2)
             setTimeout(() => {
                 clearInterval(pollInterval);
-                setDiscoveringIndex(null);
-                console.error("Discovery timeout");
-            }, 120000);
+                if (discoveringIndex === index) { // Only if still processing
+                    setDiscoveringIndex(null);
+                    setDiscoveryStatus("");
+                    console.error("Discovery timeout");
+                    alert("Discovery timed out. Please try again or add links manually.");
+                }
+            }, 300000);
 
         } catch (err) {
             console.error("Discovery failed to start", err);
@@ -270,7 +282,11 @@ export function StepAppIds({ initialData, onComplete }: StepAppIdsProps) {
                                         ) : (
                                             <Search className="w-3 h-3" />
                                         )}
-                                        {discoveringIndex === index ? "Discovering..." : "Auto-Discover Locations"}
+                                        {discoveringIndex === index ? (
+                                            discoveryStatus || "Discovering..."
+                                        ) : (
+                                            "Auto-Discover Locations"
+                                        )}
                                     </button>
                                 </div>
 

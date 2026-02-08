@@ -63,7 +63,7 @@ def _create_maps_search_task(keyword: str, location_code: int, depth: int = 100)
     }]
     
     try:
-        response = requests.post(url, json=payload, headers=_get_auth_header(), timeout=30)
+        response = requests.post(url, json=payload, headers=_get_auth_header(), timeout=60)
         response.raise_for_status()
         result = response.json()
         
@@ -195,6 +195,7 @@ def _parse_maps_items(items: List[Dict], company_name: str) -> List[Dict]:
 
 
 def discover_maps_links(company_name: str, website: str, 
+                         progress_callback=None,
                          location_context: str = "Middle East/GCC or Egypt") -> List[Dict]:
     """
     Discover Google Maps business locations using DataForSEO API.
@@ -205,7 +206,7 @@ def discover_maps_links(company_name: str, website: str,
     Args:
         company_name: Name of the company to search for
         website: Company website (not used currently but kept for API compatibility)
-        gemini_key: Not used (kept for backwards compatibility)
+        progress_callback: Optional function to call with status updates
         location_context: Not used (searches all GCC/MENA countries)
         
     Returns:
@@ -216,6 +217,8 @@ def discover_maps_links(company_name: str, website: str,
         return []
     
     logger.info(f"🔍 DataForSEO Maps Discovery: Searching for '{company_name}' across GCC/MENA region...")
+    if progress_callback:
+        progress_callback(f"Starting discovery for '{company_name}'...")
     
     all_locations = []
     seen_place_ids = set()
@@ -223,11 +226,15 @@ def discover_maps_links(company_name: str, website: str,
     # Search across multiple countries in parallel
     def search_country(country_name: str, location_code: int):
         """Search for company in a specific country"""
+        if progress_callback:
+            progress_callback(f"Searching in {country_name}...")
+            
         task_id = _create_maps_search_task(company_name, location_code, depth=50)
         if not task_id:
             return []
         
-        items = _poll_for_maps_results(task_id, max_attempts=8)
+        # Increased attempts for better reliability (approx 2-3 mins)
+        items = _poll_for_maps_results(task_id, max_attempts=20)
         locations = _parse_maps_items(items, company_name)
         
         # Add country info

@@ -41,6 +41,21 @@ def process_message(message_body):
         # Define a callback to log progress (since we don't have shared DB for status updates yet)
         def progress_callback(msg):
              logger.info(f"[Job {job_id}] {msg}")
+             # Write status to S3 for frontend polling
+             try:
+                 import boto3
+                 s3 = boto3.client('s3', region_name=AWS_REGION)
+                 s3_bucket = os.getenv("S3_BUCKET_NAME")
+                 if s3_bucket:
+                     s3.put_object(
+                         Bucket=s3_bucket,
+                         Key=f"processing_status/{job_id}.json",
+                         Body=json.dumps({"status": "running", "message": msg, "job_id": job_id}),
+                         ContentType='application/json'
+                     )
+             except Exception as e:
+                 logger.error(f"Failed to update status in S3: {e}")
+
              
         result = run_scraper_service(job_id, brands_list, progress_callback)
         logger.info(f"✅ Scraping completed. Result S3 Key: {result.get('s3_key')}")
@@ -93,7 +108,23 @@ def process_message(message_body):
             
             # Execute discovery (30-60 seconds)
             logger.info(f"   Discovering locations for '{company_name}'...")
-            locations = discover_maps_links(company_name, website)
+            
+            def discovery_progress_callback(msg):
+                logger.info(f"[Job {job_id}] {msg}")
+                try:
+                    s3 = boto3.client('s3', region_name=AWS_REGION)
+                    s3_bucket = os.getenv("S3_BUCKET_NAME")
+                    if s3_bucket:
+                        s3.put_object(
+                            Bucket=s3_bucket,
+                            Key=f"processing_status/{job_id}.json",
+                            Body=json.dumps({"status": "running", "message": msg, "job_id": job_id}),
+                            ContentType='application/json'
+                        )
+                except Exception as e:
+                    logger.error(f"Failed to update discovery status: {e}")
+
+            locations = discover_maps_links(company_name, website, progress_callback=discovery_progress_callback)
             
             # Save to S3
             s3_bucket = os.getenv("S3_BUCKET_NAME")
