@@ -51,10 +51,10 @@ def analyze_url(url: str, gemini_key: str):
 
         user_message = f"Here is the company website URL: {url}"
         
-        # Using Gemini 3 Pro Preview
+        # Using Gemini 1.5 Flash for speed (avoid 504 timeouts)
         # Enabling Google Search Tool
         response = client.models.generate_content(
-            model='gemini-3-pro-preview',
+            model='gemini-1.5-flash',
             contents=[
                 types.Content(
                     role="user",
