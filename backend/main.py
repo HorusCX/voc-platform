@@ -488,7 +488,6 @@ async def api_scrapped_data2(request: dict):
         return {"error": "Missing job_id or s3_key"}
         
     try:
-    try:
         # Read sample
         if os.path.exists(file_path):
             df = pd.read_csv(file_path)
