@@ -5,7 +5,9 @@ const nextConfig: NextConfig = {
     return [
       {
         source: '/api/:path*',
-        destination: 'http://voc-alb-478529380.eu-central-1.elb.amazonaws.com/api/:path*',
+        destination: process.env.BACKEND_URL
+          ? `${process.env.BACKEND_URL}/api/:path*`
+          : 'http://127.0.0.1:8000/api/:path*', // Default to local backend
       },
     ];
   },

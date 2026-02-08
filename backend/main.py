@@ -25,13 +25,15 @@ from services.discover_maps_locations import discover_maps_links
 from services.fetch_app_ids import resolve_app_ids
 from services.fetch_reviews import run_scraper_service
 from services.analyze_reviews import generate_dimensions, analyze_reviews
-from services.queue_service import QueueService
+
+
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME", "horus-voc-data")
-AWS_REGION = os.getenv("AWS_REGION", "me-central-1")
-SQS_QUEUE_URL = os.getenv("SQS_QUEUE_URL")
+S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME", "horus-voc-data-storage-v2-eu")
+AWS_REGION = os.getenv("AWS_REGION", "eu-central-1")
+
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -60,7 +62,7 @@ app.mount("/data", StaticFiles(directory="data"), name="data")
 
 # Helper for Presigned URL
 def generate_presigned_url(object_name, expiration=3600):
-    # Configure client for me-central-1 with explicit endpoint and SigV4
+    # Configure client for eu-central-1 with explicit endpoint and SigV4
     s3_client = boto3.client(
         's3', 
         region_name=AWS_REGION,
@@ -76,6 +78,143 @@ def generate_presigned_url(object_name, expiration=3600):
     except Exception as e:
         logger.error(f"Error generating presigned URL: {e}")
         return None
+
+    except Exception as e:
+        logger.error(f"Error generating presigned URL: {e}")
+        return None
+
+# --- Background Task Wrappers (Migrated from Worker) ---
+
+def update_job_status(job_id: str, status: str, message: str, task_type: str="processing", **kwargs):
+    """Helper to update job status in S3 for frontend polling"""
+    try:
+        s3 = boto3.client('s3', region_name=AWS_REGION)
+        if S3_BUCKET_NAME:
+            payload = {
+                "status": status, 
+                "message": message, 
+                "job_id": job_id, 
+                "task_type": task_type
+            }
+            # Add any extra metadata
+            payload.update(kwargs)
+            
+            s3.put_object(
+                Bucket=S3_BUCKET_NAME,
+                Key=f"processing_status/{job_id}.json",
+                Body=json.dumps(payload),
+                ContentType='application/json'
+            )
+    except Exception as e:
+        logger.error(f"Failed to update status in S3 for {job_id}: {e}")
+
+def task_analyze_website(job_id: str, website: str):
+    logger.info(f"🔍 Starting Background Task: Website Analysis for {job_id}")
+    update_job_status(job_id, "running", "Analyzing website content...")
+    
+    if not GEMINI_API_KEY:
+        logger.error("❌ Gemini API Key missing")
+        update_job_status(job_id, "error", "Server configuration error: Gemini Key missing")
+        return
+
+    try:
+        result = analyze_url(website, GEMINI_API_KEY)
+        
+        # Save result
+        s3 = boto3.client('s3', region_name=AWS_REGION)
+        s3.put_object(
+            Bucket=S3_BUCKET_NAME,
+            Key=f"analysis_results/{job_id}.json",
+            Body=json.dumps(result),
+            ContentType='application/json'
+        )
+        logger.info(f"✅ Website Analysis complete: {job_id}")
+        
+    except Exception as e:
+        logger.error(f"❌ Website Analysis failed: {e}")
+        update_job_status(job_id, "error", str(e))
+
+def task_scrap_reviews(job_id: str, brands_list: List[Dict]):
+    logger.info(f"🕸️ Starting Background Task: Scraping for {job_id}")
+    update_job_status(job_id, "running", "Starting scraper...")
+    
+    def progress_callback(msg):
+        logger.info(f"[Job {job_id}] {msg}")
+        update_job_status(job_id, "running", msg)
+
+    try:
+        result = run_scraper_service(job_id, brands_list, progress_callback)
+        logger.info(f"✅ Scraping completed. Result S3 Key: {result.get('s3_key')}")
+        
+        # Explicitly mark as completed in status tracking
+        # Remove keys that might conflict with positional/keyword args
+        result.pop("status", None)
+        result.pop("message", None)
+        
+        update_job_status(
+            job_id, 
+            "completed", 
+            "Scraping completed successfully!", 
+            task_type="scraping",
+            **result # This includes s3_key, summary, sample_reviews, etc.
+        )
+        
+    except Exception as e:
+        logger.error(f"❌ Scraping failed: {e}")
+        update_job_status(job_id, "error", f"Scraping failed: {str(e)}")
+
+def task_discover_locations(job_id: str, company_name: str, website: str):
+    logger.info(f"🗺️ Starting Background Task: Discovery for {job_id}")
+    update_job_status(job_id, "running", f"Discovering locations for {company_name}...")
+    
+    def progress_callback(msg):
+        logger.info(f"[Job {job_id}] {msg}")
+        update_job_status(job_id, "running", msg)
+
+    try:
+        locations = discover_maps_links(company_name, website, progress_callback=progress_callback)
+        
+        # Save result
+        s3 = boto3.client('s3', region_name=AWS_REGION)
+        s3.put_object(
+            Bucket=S3_BUCKET_NAME,
+            Key=f"discovery_results/{job_id}.json",
+            Body=json.dumps({"locations": locations}),
+            ContentType='application/json'
+        )
+        logger.info(f"✅ Discovery complete: {job_id}")
+    except Exception as e:
+        logger.error(f"❌ Discovery failed: {e}")
+        # Save error as result so frontend sees it
+        try: 
+            s3 = boto3.client('s3', region_name=AWS_REGION)
+            s3.put_object(
+                Bucket=S3_BUCKET_NAME,
+                Key=f"discovery_results/{job_id}.json",
+                Body=json.dumps({"error": str(e), "locations": []}),
+                ContentType='application/json'
+            )
+        except: pass
+
+def task_final_analysis(job_id: str, file_key: str, dimensions: List[str]):
+    logger.info(f"🧠 Starting Background Task: Final Analysis for {job_id} (File: {file_key})")
+    # Can't easily update status for this one as usage pattern relies on analysis_results/ maybe?
+    # The worker logic didn't seem to update "processing_status" for this, but notified completion via logs/result?
+    # Actually worker logic for 'analysis' just ran analyze_reviews.
+    
+    if not OPENAI_API_KEY:
+        logger.error("❌ OpenAI API Key missing")
+        return
+
+    try:
+        # Pass job_id to allow status updates within the service
+        result = analyze_reviews(file_key, dimensions, OPENAI_API_KEY, job_id=job_id)
+        if result.get("error"):
+            logger.error(f"❌ Analysis failed: {result.get('error')}")
+        else:
+            logger.info(f"✅ Analysis completed. Download URL: {result.get('download_url')}")
+    except Exception as e:
+        logger.error(f"❌ Analysis crashed: {e}")
 
 # --- Pydantic Models ---
 class WebsiteRequest(BaseModel):
@@ -109,29 +248,58 @@ class ScrapRequest(BaseModel):
 async def root():
     return {"message": "VoC Backend is running"}
 
+@app.get("/api/proxy-csv")
+async def proxy_csv(url: str):
+    """
+    Proxy to fetch CSV content from a URL to bypass CORS.
+    """
+    # URL might be very long due to pre-signed params, log it for debugging
+    logger.info(f"🔗 Proxying request for URL: {url}")
+    try:
+        import requests
+        from fastapi.responses import Response as FastApiResponse
+        
+        with requests.Session() as session:
+            try:
+                # Set a reasonable timeout and headers
+                headers = {
+                    "User-Agent": "Mozilla/5.0 (VoC-Backend-Proxy)"
+                }
+                response = session.get(url, timeout=30, headers=headers)
+                
+                if response.status_code != 200:
+                    logger.error(f"❌ Source returned {response.status_code}. Body: {response.text[:500]}")
+                    error_detail = f"Source returned {response.status_code}"
+                    if "AccessDenied" in response.text or "ExpiredToken" in response.text:
+                        error_detail = "S3 Link Expired or Access Denied"
+                    raise HTTPException(status_code=response.status_code, detail=error_detail)
+                
+                # Return content with correct CSV type if applicable
+                return FastApiResponse(
+                    content=response.text, 
+                    media_type="text/csv", 
+                    headers={"Access-Control-Allow-Origin": "*"}
+                )
+                
+            except requests.exceptions.Timeout:
+                logger.error("❌ Request to source timed out")
+                raise HTTPException(status_code=504, detail="Source request timed out")
+            except requests.exceptions.RequestException as re:
+                logger.error(f"❌ Request failed: {str(re)}")
+                raise HTTPException(status_code=502, detail=f"Failed to reach source: {str(re)}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Proxy internal error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Proxy internal error: {str(e)}")
+
 @app.post("/api/analyze-website")
-async def api_analyze_website(request: WebsiteRequest):
+async def api_analyze_website(request: WebsiteRequest, background_tasks: BackgroundTasks):
     job_id = str(uuid.uuid4())
     
-    # Push to SQS
-    if SQS_QUEUE_URL:
-        try:
-            queue_service = QueueService(region_name=AWS_REGION)
-            message_body = {
-                "task_type": "analyze_website",
-                "job_id": job_id,
-                "website": request.website
-            }
-            queue_service.send_message(SQS_QUEUE_URL, message_body)
-            logger.info(f"✅ Website Analysis Job {job_id} pushed to SQS")
-        except Exception as e:
-            logger.error(f"❌ Failed to push to SQS: {e}")
-            raise HTTPException(status_code=500, detail="Failed to queue job")
-    else:
-        # Fallback for local dev (synchronous if no queue - but we know user has queue)
-        # For strict async compliance, we should error or warn. 
-        # Given the timeout issue, we MUST use SQS.
-        raise HTTPException(status_code=500, detail="SQS_QUEUE_URL not configured")
+    # Add to background tasks
+    background_tasks.add_task(task_analyze_website, job_id, request.website)
+    logger.info(f"✅ Website Analysis Job {job_id} started in background")
              
     return {"job_id": job_id, "status": "pending"}
 
@@ -179,6 +347,29 @@ async def check_status(job_id: str):
         except Exception as e:
             logger.error(f"Error checking discovery status: {e}")
             return {"status": "error", "message": str(e)}
+
+    # Path B2: Analysis Job (NEW - Unified with Discovery/Generic S3 Status)
+    # Check for processing_status first as it might be running
+    try:
+        progress_key = f"processing_status/{job_id}.json"
+        response = s3_client.get_object(Bucket=S3_BUCKET_NAME, Key=progress_key)
+        progress_data = json.loads(response['Body'].read().decode('utf-8'))
+        
+        # If it's completed, we might want to fetch the full result or just return this if it has the link
+        # The analyze_reviews service writes "completed" status to this file too.
+        # But for full result details (like the big JSON), we might check analysis_results/{job_id}.json if we saved it there?
+        # analyze_reviews logic doesn't save full result to S3 as JSON, it saves CSV. 
+        # But it returns dict. 
+        # Generate presigned URL if s3_key is present in progress data
+        if progress_data.get("s3_key"):
+            url = generate_presigned_url(progress_data["s3_key"])
+            if url:
+                progress_data["csv_download_url"] = url
+        
+        return progress_data
+    except Exception as e:
+        # Not found or error -> fall through to other checks
+        pass
 
     # Path C: Scraping Job (Existing)
     # We check local JOBS dict first (legacy/local support) or S3
@@ -233,38 +424,23 @@ async def api_resolve_app_ids(companies: List[Company]):
         raise HTTPException(status_code=500, detail=f"Failed to resolve app IDs: {str(e)}")
 
 @app.post("/api/scrap-reviews")
-async def api_scrap_reviews(request: ScrapRequest):
+async def api_scrap_reviews(request: ScrapRequest, background_tasks: BackgroundTasks):
     """
     Start scraping reviews for the given brands.
-    Pushes job to SQS queue for async processing.
     """
     job_id = request.job_id or str(uuid.uuid4())
     
     # Convert companies to dict format
     brands_list = [brand.dict() for brand in request.brands]
     
-    # Push to SQS
-    if SQS_QUEUE_URL:
-        try:
-            queue_service = QueueService(region_name=AWS_REGION)
-            message_body = {
-                "task_type": "scraping",
-                "job_id": job_id,
-                "brands_list": brands_list
-            }
-            queue_service.send_message(SQS_QUEUE_URL, message_body)
-            logger.info(f"✅ Scraping Job {job_id} pushed to SQS")
-            
-        except Exception as e:
-            logger.error(f"❌ Failed to push scraping job to SQS: {e}")
-            raise HTTPException(status_code=500, detail="Failed to queue scraping job")
-    else:
-        raise HTTPException(status_code=500, detail="SQS_QUEUE_URL not configured")
+    # Add to background tasks
+    background_tasks.add_task(task_scrap_reviews, job_id, brands_list)
+    logger.info(f"✅ Scraping Job {job_id} started in background")
     
     return {"message": "Scraping started", "job_id": job_id}
 
 @app.post("/api/discover-maps")
-async def api_discover_maps(request: dict):
+async def api_discover_maps(request: dict, background_tasks: BackgroundTasks):
     """
     Start async discovery job for Google Maps locations.
     Returns job_id immediately for polling.
@@ -278,24 +454,9 @@ async def api_discover_maps(request: dict):
     # Generate job ID
     job_id = f"discovery_{company_name.replace(' ', '_')}_{str(uuid.uuid4())[:8]}"
     
-    # Push to SQS
-    if SQS_QUEUE_URL:
-        try:
-            queue_service = QueueService(region_name=AWS_REGION)
-            message_body = {
-                "task_type": "discover_locations",
-                "job_id": job_id,
-                "company_name": company_name,
-                "website": website
-            }
-            queue_service.send_message(SQS_QUEUE_URL, message_body)
-            logger.info(f"✅ Discovery Job {job_id} pushed to SQS")
-            
-        except Exception as e:
-            logger.error(f"❌ Failed to push discovery job to SQS: {e}")
-            raise HTTPException(status_code=500, detail="Failed to queue discovery job")
-    else:
-        raise HTTPException(status_code=500, detail="SQS_QUEUE_URL not configured")
+    # Add to background tasks
+    background_tasks.add_task(task_discover_locations, job_id, company_name, website)
+    logger.info(f"✅ Discovery Job {job_id} started in background")
     
     return {"job_id": job_id, "status": "processing"}
 
@@ -350,42 +511,25 @@ async def api_scrapped_data2(request: dict):
 # def process_analysis_task(file_path, dimensions): ...
 
 @app.post("/api/final-analysis")
-async def api_final_analysis(request: dict):
+async def api_final_analysis(request: dict, background_tasks: BackgroundTasks):
     # Expected: { dimensions: [...], file_key: ... }
     dimensions = request.get("dimensions", [])
     file_key = request.get("file_key")
     
     if not file_key: 
-        return {"error": "Missing file_key"}
+        raise HTTPException(status_code=400, detail="Missing file_key")
     
-    # Resolve file path/key logic
-    # In async worker, we prefer S3 key or full link. 
-    # If it's local path "data/...", worker needs access to it. 
-    # Assuming worker has shared storage or we are using S3.
-    # Deployment plan uses S3. So we should pass S3 key.
+    # Generate a job ID for tracking
+    job_id = f"analysis_{str(uuid.uuid4())}"
     
-    # --- ASYNC CHANGE: Push to SQS ---
-    if SQS_QUEUE_URL:
-        try:
-            queue_service = QueueService(region_name=AWS_REGION)
-            message_body = {
-                "task_type": "analysis",
-                "file_path": file_key, # Worker must handle S3 download if it's an S3 key
-                "dimensions": dimensions
-            }
-            queue_service.send_message(SQS_QUEUE_URL, message_body)
-            logger.info(f"✅ Analysis Task pushed to SQS for {file_key}")
-            
-        except Exception as e:
-            logger.error(f"❌ Failed to push to SQS: {e}")
-            raise HTTPException(status_code=500, detail="Failed to queue analysis")
-    else:
-        raise HTTPException(status_code=500, detail="SQS_QUEUE_URL not configured")
+    # Add to background tasks
+    background_tasks.add_task(task_final_analysis, job_id, file_key, dimensions)
+    logger.info(f"✅ Analysis Task {job_id} started in background for {file_key}")
     
-    # Return immediately to unblock UI
     return {
         "status": "success",
-        "message": "Analysis started in background (Async SQS)"
+        "message": "Analysis started in background",
+        "job_id": job_id
     }
 
 if __name__ == "__main__":

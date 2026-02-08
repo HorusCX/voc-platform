@@ -36,6 +36,11 @@ export interface JobStatus {
     dashboard_link?: string;
     body?: any;
     result?: any;
+    // New fields for analysis progress
+    processed?: number;
+    total?: number;
+    job_id?: string;
+    email_sent?: boolean;
 }
 
 export const VoCService = {
@@ -66,7 +71,7 @@ export const VoCService = {
     },
 
     submitDimensions: async (payload: any) => {
-        const response = await api.post('/api/final-analysis', payload);
+        const response = await api.post<{ status: string; message: string; job_id?: string }>('/api/final-analysis', payload);
         return response.data;
     },
 

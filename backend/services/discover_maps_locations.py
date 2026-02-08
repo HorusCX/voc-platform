@@ -14,6 +14,7 @@ import time
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Dict, Optional
+from functools import wraps
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -36,6 +37,43 @@ LOCATION_CODES = {
     "Oman": 2512,
 }
 
+# Prioritize countries by business density and likelihood
+PRIORITY_COUNTRIES = [
+    "United Arab Emirates",
+    "Saudi Arabia",
+    "Egypt",
+    "Kuwait",
+    "Qatar",
+    "Bahrain",
+    "Oman",
+]
+
+# Configuration
+MAX_LOCATIONS_TARGET = 30  # Stop early if we reach this many locations
+DEFAULT_POLL_ATTEMPTS = 8  # Reduced from 12 for faster failures (~1 min max)
+
+
+def _retry_on_failure(max_retries: int = 2, delay: float = 1.0):
+    """Decorator to retry failed API calls with exponential backoff"""
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            last_exception = None
+            for attempt in range(max_retries + 1):
+                try:
+                    return func(*args, **kwargs)
+                except requests.RequestException as e:
+                    last_exception = e
+                    if attempt < max_retries:
+                        wait_time = delay * (2 ** attempt)
+                        logger.warning(f"Retry {attempt + 1}/{max_retries} after {wait_time}s: {e}")
+                        time.sleep(wait_time)
+                    else:
+                        logger.error(f"Failed after {max_retries} retries: {e}")
+            raise last_exception
+        return wrapper
+    return decorator
+
 
 def _get_auth_header() -> dict:
     """Generate Basic Auth header for DataForSEO API"""
@@ -47,6 +85,7 @@ def _get_auth_header() -> dict:
     }
 
 
+@_retry_on_failure(max_retries=2, delay=1.0)
 def _create_maps_search_task(keyword: str, location_code: int, depth: int = 100) -> Optional[str]:
     """
     Create a Google Maps SERP search task.
@@ -82,7 +121,7 @@ def _create_maps_search_task(keyword: str, location_code: int, depth: int = 100)
         return None
 
 
-def _poll_for_maps_results(task_id: str, max_attempts: int = 10, initial_wait: float = 2.0) -> List[Dict]:
+def _poll_for_maps_results(task_id: str, max_attempts: int = DEFAULT_POLL_ATTEMPTS, initial_wait: float = 2.0) -> List[Dict]:
     """
     Poll for Google Maps SERP task completion.
     Returns list of location items or empty list.
@@ -223,31 +262,42 @@ def discover_maps_links(company_name: str, website: str,
     all_locations = []
     seen_place_ids = set()
     
-    # Search across multiple countries in parallel
+    # Search across multiple countries in priority order
     def search_country(country_name: str, location_code: int):
         """Search for company in a specific country"""
         if progress_callback:
             progress_callback(f"Searching in {country_name}...")
             
-        task_id = _create_maps_search_task(company_name, location_code, depth=50)
-        if not task_id:
-            return []
-        
-        # Increased attempts for better reliability (approx 2-3 mins)
-        items = _poll_for_maps_results(task_id, max_attempts=20)
-        locations = _parse_maps_items(items, company_name)
-        
-        # Add country info
-        for loc in locations:
-            loc["country"] = country_name
+        try:
+            task_id = _create_maps_search_task(company_name, location_code, depth=50)
+            if not task_id:
+                return []
             
-        return locations
+            # Use optimized polling attempts
+            items = _poll_for_maps_results(task_id, max_attempts=DEFAULT_POLL_ATTEMPTS)
+            locations = _parse_maps_items(items, company_name)
+            
+            # Add country info
+            for loc in locations:
+                loc["country"] = country_name
+                
+            return locations
+        except Exception as e:
+            logger.error(f"Error searching {country_name}: {e}")
+            return []
     
-    # Run searches in parallel (max 3 concurrent to avoid rate limits)
-    with ThreadPoolExecutor(max_workers=3) as executor:
+    # Use priority-ordered countries for better early termination
+    ordered_countries = [
+        (country, LOCATION_CODES[country]) 
+        for country in PRIORITY_COUNTRIES 
+        if country in LOCATION_CODES
+    ]
+    
+    # Run searches in parallel (max 10 concurrent to cover all countries at once)
+    with ThreadPoolExecutor(max_workers=10) as executor:
         futures = {
             executor.submit(search_country, country, code): country 
-            for country, code in LOCATION_CODES.items()
+            for country, code in ordered_countries
         }
         
         for future in as_completed(futures):
@@ -260,8 +310,14 @@ def discover_maps_links(company_name: str, website: str,
                         all_locations.append(loc)
                         if len(all_locations) <= 20:
                             logger.info(f"  ✓ {loc['name']} ({country})")
+                
+                # Early termination: stop if we have enough quality results
+                if len(all_locations) >= MAX_LOCATIONS_TARGET:
+                    logger.info(f"🎯 Reached target of {MAX_LOCATIONS_TARGET} locations, stopping early")
+                    break
+                    
             except Exception as e:
-                logger.error(f"Error searching {country}: {e}")
+                logger.error(f"Error processing results from {country}: {e}")
     
     # Sort by reviews count (most reviewed first)
     all_locations.sort(key=lambda x: x.get("reviews_count") or 0, reverse=True)

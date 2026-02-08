@@ -36,7 +36,7 @@ export function StepWebsite({ onComplete }: StepWebsiteProps) {
                 // Async Flow: Poll for result
                 const jobId = response.job_id;
                 let attempts = 0;
-                const maxAttempts = 30; // 60 seconds (2s interval)
+                const maxAttempts = 90; // 180 seconds (3 mins)
 
                 const pollInterval = setInterval(async () => {
                     attempts++;
@@ -47,6 +47,10 @@ export function StepWebsite({ onComplete }: StepWebsiteProps) {
                             clearInterval(pollInterval);
                             setLoading(false);
                             onComplete(status.result);
+                        } else if (status.status === 'error' || status.status === 'failed') {
+                            clearInterval(pollInterval);
+                            setLoading(false);
+                            setError(status.message || "Analysis failed. Please try again.");
                         } else if (attempts >= maxAttempts) {
                             clearInterval(pollInterval);
                             setLoading(false);

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { VoCService } from "@/lib/api";
 import { Card } from "../ui/Card";
-import { Loader2, CheckCircle, ExternalLink, Send } from "lucide-react";
+import { Loader2, CheckCircle, ExternalLink, Send, BarChart3, Download } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface SuccessViewProps {
@@ -16,10 +16,21 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
     const [data, setData] = useState<any>(null);
     const [dimensions, setDimensions] = useState<any[]>([]); // To hold the dimension form data
     const [submittingDims, setSubmittingDims] = useState(false);
-    const [finalSuccess, setFinalSuccess] = useState(false);
 
-    // Polling Logic
+    // Analysis State
+    const [analysisJobId, setAnalysisJobId] = useState<string | null>(null);
+    const [analyzing, setAnalyzing] = useState(false);
+    const [analysisProgress, setAnalysisProgress] = useState<{
+        processed: number;
+        total: number;
+        message: string;
+    } | null>(null);
+    const [finalResult, setFinalResult] = useState<any>(null);
+
+    // Polling Logic for Scraper
     useEffect(() => {
+        if (status !== 'polling') return;
+
         let interval: NodeJS.Timeout;
         let attempts = 0;
         const maxAttempts = 60; // 10 mins
@@ -45,13 +56,44 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
             }
         };
 
-        if (status === 'polling') {
-            interval = setInterval(check, 10000); // 10s
-            check(); // initial
-        }
+        interval = setInterval(check, 10000); // 10s
+        check(); // initial
 
         return () => clearInterval(interval);
     }, [jobId, status]);
+
+    // Polling Logic for Analysis
+    useEffect(() => {
+        if (!analyzing || !analysisJobId) return;
+
+        const interval = setInterval(async () => {
+            try {
+                const res = await VoCService.checkStatus(analysisJobId);
+                console.log("Analysis Status:", res);
+
+                if (res.status === 'completed') {
+                    setFinalResult(res);
+                    setAnalyzing(false);
+                    setAnalysisJobId(null);
+                } else if (res.status === 'running' || res.status === 'processing') {
+                    setAnalysisProgress({
+                        processed: res.processed || 0,
+                        total: res.total || 0,
+                        message: res.message || "Analyzing reviews..."
+                    });
+                } else if (res.status === 'error' || res.status === 'failed') {
+                    alert(`Analysis failed: ${res.message || "Unknown error"}`);
+                    setAnalyzing(false);
+                    setAnalysisJobId(null);
+                }
+            } catch (e) {
+                console.error("Analysis poll error", e);
+            }
+        }, 5000); // Poll every 5s
+
+        return () => clearInterval(interval);
+    }, [analyzing, analysisJobId]);
+
 
     // Handle "Process Extracted Data"
     const handleProcessData = async () => {
@@ -85,11 +127,25 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
             if (Array.isArray(body)) dims = body;
             else if (typeof body === 'object' && body && (body as any).dimensions) dims = (body as any).dimensions;
 
+            if (dims.length === 0) {
+                console.warn("No dimensions returned from webhook");
+                alert("No dimensions were generated. Please check if the extracted data is sufficient.");
+            }
+
             setDimensions(dims);
+
+            // CRITICAL: Update data state with any return file info so it's available for submission
+            if (resAny.body?.s3_key || resAny.s3_key) {
+                setData((prev: any) => ({
+                    ...prev,
+                    s3_key: resAny.body?.s3_key || resAny.s3_key,
+                    s3_bucket: resAny.body?.s3_bucket || resAny.s3_bucket || prev?.s3_bucket
+                }));
+            }
 
         } catch (e) {
             console.error(e);
-            alert("Failed to process data.");
+            alert("Failed to process data. The server might be busy or returned an error.");
         } finally {
             setSubmittingDims(false);
         }
@@ -98,12 +154,20 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
     const handleSubmitDimensions = async () => {
         setSubmittingDims(true);
         try {
-            await VoCService.submitDimensions({
+            const response = await VoCService.submitDimensions({
                 dimensions: dimensions,
                 bucket_name: data?.s3_bucket,
                 file_key: data?.s3_key || data?.file_path
             });
-            setFinalSuccess(true);
+
+            // Start analysis tracking
+            if (response.job_id) {
+                setAnalysisJobId(response.job_id);
+                setAnalyzing(true);
+            } else {
+                // Fallback if no job_id returned (legacy behavior), though backend is updated
+                alert("Analysis started but no Job ID returned. Check your email for results.");
+            }
         } catch (e) {
             alert("Submission failed");
         } finally {
@@ -116,6 +180,8 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
         newDims[idx] = { ...newDims[idx], [field]: val };
         setDimensions(newDims);
     };
+
+    // --- RENDER STATES ---
 
     if (status === 'polling') {
         return (
@@ -145,23 +211,110 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
         );
     }
 
-    // --- COMPLETED VIEW ---
+    // --- FINAL SUCCESS WITH DASHBOARD ---
 
-    if (finalSuccess) {
+    if (finalResult) {
         return (
-            <Card className="max-w-2xl mx-auto text-center py-12 bg-green-50 border-green-200">
-                <h2 className="text-2xl font-bold text-green-700 mb-4">✨ VoC Magic is happening</h2>
-                <p className="text-slate-700 text-lg">
-                    Dashboard link will be sent to <strong>info@horuscx.com</strong> shortly.
+            <Card className="max-w-2xl mx-auto text-center py-16 bg-gradient-to-br from-green-50 to-emerald-50 border-green-200 shadow-xl">
+                <div className="mb-6 inline-flex p-4 bg-white rounded-full shadow-sm">
+                    <span className="text-4xl">✨</span>
+                </div>
+
+                <h2 className="text-3xl font-extrabold text-green-800 mb-4 tracking-tight">
+                    VoC Magic is Complete!
+                </h2>
+
+                <p className="text-slate-600 text-lg mb-8 max-w-md mx-auto">
+                    We've analyzed your reviews and generated actionable insights.
                 </p>
-                <button onClick={onReset} className="mt-8 text-green-700 underline">Start New Analysis</button>
+
+                {/* Action Section */}
+                {(finalResult.dashboard_link || finalResult.csv_download_url) && (
+                    <div className="mb-8 flex flex-col items-center gap-4 transform hover:scale-105 transition-transform duration-300">
+                        <a
+                            href={finalResult.dashboard_link || `/dashboard?csv_url=${encodeURIComponent(finalResult.csv_download_url)}`}
+                            target="_blank"
+                            className="inline-flex items-center justify-center gap-3 bg-green-600 hover:bg-green-700 text-white px-10 py-4 rounded-xl font-bold text-xl shadow-lg hover:shadow-green-500/30 transition-all"
+                        >
+                            <BarChart3 className="w-6 h-6" />
+                            Dashboard
+                        </a>
+                        {(finalResult.dashboard_link || finalResult.csv_download_url) && (
+                            <div className="text-xs text-slate-400 bg-slate-50 px-3 py-1 rounded-full border border-slate-100 max-w-sm truncate text-center">
+                                Link: <span className="font-mono text-[10px] opacity-70">
+                                    {finalResult.dashboard_link || finalResult.csv_download_url}
+                                </span>
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                <div className="bg-white/60 backdrop-blur-sm rounded-lg p-4 max-w-sm mx-auto border border-green-100 mb-8">
+                    <p className="text-sm text-slate-500">
+                        {finalResult.email_sent
+                            ? "📧 A copy of this report has also been sent to info@horuscx.com"
+                            : "ℹ️ Analysis complete."}
+                    </p>
+                </div>
+
+                <button
+                    onClick={onReset}
+                    className="text-green-700 hover:text-green-800 font-medium hover:underline text-sm"
+                >
+                    Start New Analysis
+                </button>
+            </Card>
+        );
+    }
+
+    // --- ANALYSIS PROGRESS ---
+
+    if (analyzing) {
+        const percent = analysisProgress && analysisProgress.total > 0
+            ? Math.round((analysisProgress.processed / analysisProgress.total) * 100)
+            : 0;
+
+        return (
+            <Card className="max-w-xl mx-auto text-center py-12">
+                <div className="mb-6 relative w-20 h-20 mx-auto">
+                    <Loader2 className="h-20 w-20 text-indigo-100 animate-spin absolute" />
+                    <Loader2 className="h-20 w-20 text-indigo-600 animate-spin absolute top-0 left-0 opacity-20" />
+                    <div className="absolute inset-0 flex items-center justify-center font-bold text-indigo-600">
+                        {percent}%
+                    </div>
+                </div>
+
+                <h2 className="text-xl font-bold text-slate-800 mb-2">Analyzing Reviews...</h2>
+                <p className="text-slate-500 mb-6 text-sm">
+                    {analysisProgress?.message || "Starting analysis engine..."}
+                </p>
+
+                {/* Progress Bar */}
+                <div className="w-full max-w-sm mx-auto bg-slate-100 rounded-full h-2.5 mb-1 overflow-hidden">
+                    <div
+                        className="bg-indigo-600 h-2.5 rounded-full transition-all duration-500 ease-out"
+                        style={{ width: `${percent}%` }}
+                    />
+                </div>
+                <div className="flex justify-between max-w-sm mx-auto text-xs text-slate-400 mb-8">
+                    <span>0%</span>
+                    <span>{analysisProgress?.processed || 0} / {analysisProgress?.total || "?"}</span>
+                    <span>100%</span>
+                </div>
+
+                <div className="bg-blue-50 border border-blue-100 p-4 rounded-lg text-left text-sm text-blue-800 max-w-sm mx-auto">
+                    <p className="font-semibold mb-1">ℹ️ This usually takes 2-3 hours.</p>
+                    <p className="opacity-80">
+                        You can close this tab. We will email <strong>info@horuscx.com</strong> when the dashboard is ready.
+                    </p>
+                </div>
             </Card>
         );
     }
 
     return (
         <div className="max-w-3xl mx-auto space-y-6">
-            {/* SUCCESS CARD */}
+            {/* COMPLETED SCRAPING CARD */}
             <div className="bg-white rounded-xl shadow-lg border border-green-100 p-8 text-center animate-in fade-in slide-in-from-bottom-4 duration-500">
                 <div className="mx-auto bg-green-100 w-16 h-16 rounded-full flex items-center justify-center mb-4">
                     <CheckCircle className="h-8 w-8 text-green-600" />
@@ -188,7 +341,7 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
                 )}
 
                 <div className="flex flex-col sm:flex-row gap-3 justify-center">
-                    {/* 1. Dashboard Link if available */}
+                    {/* 1. Dashboard Link if available (from Scraper!?) usually not, but fallback */}
                     {data?.dashboard_link && (
                         <a
                             href={data.dashboard_link}
@@ -201,27 +354,18 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
 
                     {/* 1.5 CSV Download Link */}
                     {data?.csv_download_url && (
-                        <>
-                            <a
-                                href={data.csv_download_url.startsWith('http') ? data.csv_download_url : `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}${data.csv_download_url}`}
-                                download
-                                target="_blank"
-                                className="inline-flex items-center justify-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 px-6 py-3 rounded-lg font-bold shadow-sm transition-colors"
-                            >
-                                <ExternalLink className="h-4 w-4" /> Download CSV
-                            </a>
-
-                            {/* View Dashboard Button */}
-                            <a
-                                href={`/dashboard?csv_url=${encodeURIComponent(data.csv_download_url)}`}
-                                className="inline-flex items-center justify-center gap-2 bg-teal-500 hover:bg-teal-600 text-white px-6 py-3 rounded-lg font-bold shadow-md transition-colors"
-                            >
-                                📊 View Dashboard
-                            </a>
-                        </>
+                        <a
+                            href={data.csv_download_url.startsWith('http') ? data.csv_download_url : `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}${data.csv_download_url}`}
+                            download
+                            target="_blank"
+                            className="inline-flex items-center justify-center gap-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 px-6 py-3 rounded-lg font-bold shadow-sm transition-all hover:scale-105 active:scale-95"
+                        >
+                            <Download className="h-5 w-5" />
+                            Download Results CSV
+                        </a>
                     )}
 
-                    {/* 2. Forward / Process Button */}
+                    {/* 2. Generate Dimensions Button */}
                     {dimensions.length === 0 && (
                         <button
                             onClick={handleProcessData}
@@ -276,7 +420,7 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
                             disabled={submittingDims}
                             className="w-full bg-calo-primary hover:bg-calo-dark text-white font-bold py-3 rounded-full flex items-center justify-center gap-2 transition-colors shadow-sm"
                         >
-                            {submittingDims ? <Loader2 className="animate-spin" /> : <><Send className="h-4 w-4" /> Submit {dimensions.length} Dimensions 🚀</>}
+                            {submittingDims ? <Loader2 className="animate-spin" /> : <><Send className="h-4 w-4" /> Start Analysis & Generate Dashboard 🚀</>}
                         </button>
                     </div>
                 </Card>
@@ -284,3 +428,4 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
         </div>
     );
 }
+

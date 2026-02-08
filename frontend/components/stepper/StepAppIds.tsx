@@ -15,9 +15,11 @@ export function StepAppIds({ initialData, onComplete }: StepAppIdsProps) {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    // State to track which item is currently discovering maps
-    const [discoveringIndex, setDiscoveringIndex] = useState<number | null>(null);
-    const [discoveryStatus, setDiscoveryStatus] = useState<string>("");
+    // State to track which items are currently discovering maps (using a Set for O(1) lookups)
+    const [discoveringIndices, setDiscoveringIndices] = useState<Set<number>>(new Set());
+    // We can't easily track status messages for multiple items with one string, so we'll omit the detailed status message in parallel mode
+    // or we could make it a map: index -> message. Let's keep it simple for now and just show "Loading..."
+    const [discoveryStatuses, setDiscoveryStatuses] = useState<{ [key: number]: string }>({});
 
     // State for new link inputs (map of index -> string)
     const [newLinkInputs, setNewLinkInputs] = useState<{ [key: number]: string }>({});
@@ -32,13 +34,12 @@ export function StepAppIds({ initialData, onComplete }: StepAppIdsProps) {
             hasAutoDiscovered.current = true;
 
             // Sequential discovery to avoid overwhelming the backend/browser
-            for (let i = 0; i < items.length; i++) {
-                const item = items[i];
-                // Only discover if no links exist
+            // Parallel discovery for all items
+            await Promise.all(items.map(async (item, i) => {
                 if (!item.google_maps_links || item.google_maps_links.length === 0) {
                     await handleDiscoverMaps(i);
                 }
-            }
+            }));
         };
 
         runAutoDiscovery();
@@ -55,8 +56,14 @@ export function StepAppIds({ initialData, onComplete }: StepAppIdsProps) {
         if (!item.company_name) return;
 
         console.log(`🔍 Starting discovery for ${item.company_name} (index: ${index})`);
-        setDiscoveringIndex(index);
-        setDiscoveryStatus("Starting...");
+
+        setDiscoveringIndices(prev => {
+            const newSet = new Set(prev);
+            newSet.add(index);
+            return newSet;
+        });
+        setDiscoveryStatuses(prev => ({ ...prev, [index]: "Starting..." }));
+
         try {
             // Step 1: Start discovery job (returns immediately with job_id)
             const { job_id } = await VoCService.discoverMapsLinks(
@@ -73,7 +80,9 @@ export function StepAppIds({ initialData, onComplete }: StepAppIdsProps) {
                     console.log(`📊 Poll status for ${item.company_name}:`, statusData.status);
 
                     if (statusData.status === "running" && statusData.message) {
-                        setDiscoveryStatus(statusData.message);
+                        setDiscoveryStatuses(prev => ({ ...prev, [index]: statusData.message || "Running..." }));
+                    } else if (statusData.status === "pending" || statusData.status === "processing") {
+                        setDiscoveryStatuses(prev => ({ ...prev, [index]: "Processing..." }));
                     }
 
                     if (statusData.status === "completed") {
@@ -124,14 +133,29 @@ export function StepAppIds({ initialData, onComplete }: StepAppIdsProps) {
                             return newItems;
                         });
 
-                        setDiscoveringIndex(null);
-                        setDiscoveryStatus("");
+                        setDiscoveringIndices(prev => {
+                            const newSet = new Set(prev);
+                            newSet.delete(index);
+                            return newSet;
+                        });
+                        setDiscoveryStatuses(prev => {
+                            const { [index]: _, ...rest } = prev;
+                            return rest;
+                        });
 
                     } else if (statusData.status === "error") {
                         clearInterval(pollInterval);
                         console.error("Discovery error:", statusData.message);
-                        setDiscoveringIndex(null);
-                        setDiscoveryStatus("");
+                        setDiscoveringIndices(prev => {
+                            const newSet = new Set(prev);
+                            newSet.delete(index);
+                            return newSet;
+                        });
+                        setDiscoveryStatuses(prev => {
+                            const { [index]: _, ...rest } = prev;
+                            return rest;
+                        });
+                        alert(`Discovery failed for ${item.company_name}: ${statusData.message}`);
                     }
                     // else: still processing, keep polling
 
@@ -144,17 +168,34 @@ export function StepAppIds({ initialData, onComplete }: StepAppIdsProps) {
             // Timeout after 5 minutes (increased from 2)
             setTimeout(() => {
                 clearInterval(pollInterval);
-                if (discoveringIndex === index) { // Only if still processing
-                    setDiscoveringIndex(null);
-                    setDiscoveryStatus("");
+                if (discoveringIndices.has(index)) { // Only if still processing (check against current state might be tricky in closure, but polling stops so it's safer)
+                    // Note: discoveringIndices in closure is stale. We rely on the interval clearing.
+                    // But to update state safely:
+                    setDiscoveringIndices(prev => {
+                        const newSet = new Set(prev);
+                        if (newSet.has(index)) {
+                            newSet.delete(index);
+                            return newSet;
+                        }
+                        return prev;
+                    });
+                    setDiscoveryStatuses(prev => {
+                        const { [index]: _, ...rest } = prev;
+                        return rest;
+                    });
                     console.error("Discovery timeout");
-                    alert("Discovery timed out. Please try again or add links manually.");
+                    // alert("Discovery timed out. Please try again or add links manually."); 
+                    // Alert might be annoying if multiple timeout together. Log it.
                 }
             }, 300000);
 
         } catch (err) {
             console.error("Discovery failed to start", err);
-            setDiscoveringIndex(null);
+            setDiscoveringIndices(prev => {
+                const newSet = new Set(prev);
+                newSet.delete(index);
+                return newSet;
+            });
         }
     };
 
@@ -224,12 +265,22 @@ export function StepAppIds({ initialData, onComplete }: StepAppIdsProps) {
     return (
         <Card title="Step 3: Verify App IDs & Links" className="w-full max-w-3xl mx-auto">
             <div className="space-y-6">
-                <div className="bg-calo-mint p-3 rounded-md flex gap-2 text-sm text-green-800 border border-calo-green-primary/20">
-                    <AlertCircle className="h-5 w-5 shrink-0 text-calo-green-primary" />
-                    <p>
-                        Verify App IDs and Google Maps locations.
-                        Use <strong>Auto-Discover</strong> to find all maps branches for deeper insights.
-                    </p>
+                <div className="bg-calo-mint p-3 rounded-md flex flex-col gap-2 text-sm text-green-800 border border-calo-green-primary/20">
+                    <div className="flex gap-2">
+                        <AlertCircle className="h-5 w-5 shrink-0 text-calo-green-primary" />
+                        <p>
+                            Verify App IDs and Google Maps locations.
+                            Use <strong>Auto-Discover</strong> to find all maps branches for deeper insights.
+                        </p>
+                    </div>
+
+                    {/* Global Progress Indicator */}
+                    {discoveringIndices.size > 0 && (
+                        <div className="mt-2 pl-7 flex items-center gap-2 text-calo-primary font-medium animate-pulse">
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            <span>Discovering locations for {discoveringIndices.size} brand{discoveringIndices.size > 1 ? 's' : ''}... please wait.</span>
+                        </div>
+                    )}
                 </div>
 
                 <div className="space-y-4">
@@ -272,22 +323,20 @@ export function StepAppIds({ initialData, onComplete }: StepAppIdsProps) {
                                             <span className="ml-1 text-calo-primary">({(item.google_maps_links || []).length})</span>
                                         )}
                                     </label>
-                                    <button
-                                        onClick={() => handleDiscoverMaps(index)}
-                                        disabled={discoveringIndex === index}
-                                        className="text-xs flex items-center gap-1 text-calo-primary hover:text-calo-dark disabled:opacity-50 font-medium"
-                                    >
-                                        {discoveringIndex === index ? (
+                                    {discoveringIndices.has(index) ? (
+                                        <span className="text-xs flex items-center gap-1 text-slate-400 font-medium">
                                             <Loader2 className="w-3 h-3 animate-spin" />
-                                        ) : (
+                                            {discoveryStatuses[index] || "Loading..."}
+                                        </span>
+                                    ) : (
+                                        <button
+                                            onClick={() => handleDiscoverMaps(index)}
+                                            className="text-xs flex items-center gap-1 text-calo-primary hover:text-calo-dark font-medium"
+                                        >
                                             <Search className="w-3 h-3" />
-                                        )}
-                                        {discoveringIndex === index ? (
-                                            discoveryStatus || "Discovering..."
-                                        ) : (
-                                            "Auto-Discover Locations"
-                                        )}
-                                    </button>
+                                            Auto-Discover Locations
+                                        </button>
+                                    )}
                                 </div>
 
                                 <div className="space-y-2 max-h-64 overflow-y-auto">

@@ -4,9 +4,9 @@ This guide explains how to deploy the VoC backend to AWS ECS.
 
 ## Deployment Scripts
 
-### `deploy_full.sh` - Complete Deployment (Recommended)
+### `deploy_backend.sh` - Backend Deployment (Recommended)
 
-This is the **recommended** script for deploying updates. It handles the entire deployment process:
+This is the **main** script for deploying backend updates. It handles the entire deployment process:
 
 1. **Builds** the Docker image
 2. **Pushes** to Amazon ECR
@@ -17,35 +17,37 @@ This is the **recommended** script for deploying updates. It handles the entire 
 
 **Usage:**
 ```bash
-./deploy_full.sh
-```
-
-**Why force stop tasks?**
-ECS sometimes doesn't immediately replace tasks when updating to a new task definition revision. By forcing the old tasks to stop, we ensure the new revision deploys immediately without getting stuck in a pending state.
-
----
-
-### Other Deployment Scripts
-
-#### `deploy_backend.sh` - Build & Push Only
-Builds the Docker image and pushes it to ECR. Does not update ECS services.
-
-```bash
 ./deploy_backend.sh
 ```
 
-#### `deploy_ecs.sh` - Register Task Definitions Only
-Registers new task definitions with the latest Docker image. Does not update running services.
+### `deploy_frontend.sh` - Frontend Deployment
 
+Deploys the Next.js frontend to AWS Amplify (via GitHub push).
+
+**Usage:**
 ```bash
-./deploy_ecs.sh
+./deploy_frontend.sh
 ```
 
-#### `deploy_services.sh` - Initial Service Creation
-Creates ECS services, load balancers, and security groups. **Only run once** during initial setup.
+### `setup_aws.sh` - Infrastructure Setup (One-Time)
+
+Initializes all required AWS resources (S3, VPC, ALB, ECS Cluster/Service). Run this only once when setting up a new environment.
+
+**Usage:**
+```bash
+./setup_aws.sh
+```
+
+---
+
+## Deployment Workflow
+
+### For Regular Updates (Code Changes)
+
+Use the backend deployment script:
 
 ```bash
-./deploy_services.sh
+./deploy_backend.sh
 ```
 
 ---

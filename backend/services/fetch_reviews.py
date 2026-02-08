@@ -31,8 +31,8 @@ RUN_GOOGLE_PLAY = True
 RUN_APP_STORE = True
 RUN_GOOGLE_MAPS = True
 COUNTRIES = ['sa', 'ae', 'kw', 'bh', 'qa', 'om', 'us']
-S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME", "horus-voc-data")
-AWS_REGION = os.getenv("AWS_REGION", "me-central-1")
+S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME", "horus-voc-data-storage-v2-eu")
+AWS_REGION = os.getenv("AWS_REGION", "eu-central-1")
 
 def upload_to_s3(file_path, object_name=None):
     """
@@ -125,38 +125,44 @@ def scrape_app_store(brand_name, app_id):
     
     def process_country(country):
         country_reviews = []
-        try:
-            for page in range(1, 11): 
-                url = f"https://itunes.apple.com/{country}/rss/customerreviews/page={page}/id={app_id}/sortBy=mostRecent/json"
-                try:
-                    resp = requests.get(url, timeout=5)
-                    if resp.status_code != 200: break
-                    data = resp.json()
-                    entries = data.get('feed', {}).get('entry', [])
-                    if not entries: break
-                    if isinstance(entries, dict): entries = [entries]
+        
+        def fetch_page(page):
+            url = f"https://itunes.apple.com/{country}/rss/customerreviews/page={page}/id={app_id}/sortBy=mostRecent/json"
+            try:
+                resp = requests.get(url, timeout=5)
+                if resp.status_code != 200: return []
+                data = resp.json()
+                entries = data.get('feed', {}).get('entry', [])
+                if not entries: return []
+                if isinstance(entries, dict): entries = [entries]
+                
+                page_reviews = []
+                for entry in entries:
+                    try:
+                        date_str = entry.get('updated', {}).get('label', '')
+                        entry_date = pd.to_datetime(date_str)
+                        if entry_date.tz_localize(None) < six_months_ago:
+                            continue
+                        review = {
+                            'text': entry.get('content', {}).get('label', ''),
+                            'rating': int(entry.get('im:rating', {}).get('label', '0')),
+                            'date': entry_date.strftime('%Y-%m-%d'),
+                            'source_user': entry.get('author', {}).get('name', {}).get('label', 'Anonymous'),
+                            'platform': f'App Store ({country.upper()})',
+                            'brand': brand_name
+                        }
+                        page_reviews.append(review)
+                    except: continue
+                return page_reviews
+            except: return []
 
-                    stop_paging = False
-                    for entry in entries:
-                        try:
-                            date_str = entry.get('updated', {}).get('label', '')
-                            entry_date = pd.to_datetime(date_str)
-                            if entry_date.tz_localize(None) < six_months_ago:
-                                stop_paging = True
-                                continue
-                            review = {
-                                'text': entry.get('content', {}).get('label', ''),
-                                'rating': int(entry.get('im:rating', {}).get('label', '0')),
-                                'date': entry_date.strftime('%Y-%m-%d'),
-                                'source_user': entry.get('author', {}).get('name', {}).get('label', 'Anonymous'),
-                                'platform': f'App Store ({country.upper()})',
-                                'brand': brand_name
-                            }
-                            country_reviews.append(review)
-                        except: continue
-                    if stop_paging: break
-                except: break
-        except: pass
+        # Fetch up to 10 pages in parallel
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as page_executor:
+            futures = [page_executor.submit(fetch_page, p) for p in range(1, 11)]
+            for future in concurrent.futures.as_completed(futures):
+                res = future.result()
+                if res: country_reviews.extend(res)
+                
         return country_reviews
 
     all_reviews = []
@@ -221,34 +227,24 @@ def run_scraper_service(job_id, brands_list, progress_callback=None):
                 future_map[f] = {'brand': name, 'type': 'app'}
                 
             if RUN_GOOGLE_MAPS and gmaps_links:
+                batch_locations = []
                 for link_data in gmaps_links:
-                    # Handle multiple formats: string URL, dict with {url, name}, or dict with {place_id, name, url}
                     if isinstance(link_data, dict):
                         place_id = link_data.get("place_id", "")
                         url = link_data.get("url", "")
                         location_name = link_data.get("name", "")
                         
-                        # Priority: place_id > name > url
-                        if place_id:
-                            # Use place_id for most reliable results
-                            # Use place_id for most reliable results
-                            # We can pass place_id directly to the main scraper function
-                            # The scraper function handles place_id extraction if it's in a URL like "place_id:..."
-                            # Or we can pass it as a special formatted string
-                            formatted_query = f"place_id:{place_id}"
-                            f = executor.submit(scrape_google_maps_reviews, formatted_query)
-                            future_map[f] = {'brand': name, 'type': 'maps', 'link': location_name or place_id}
-                        else:
-                            # Fall back to keyword search
-                            keyword = location_name if location_name else url
-                            if keyword:
-                                f = executor.submit(scrape_google_maps_reviews, keyword)
-                                future_map[f] = {'brand': name, 'type': 'maps', 'link': url or keyword}
+                        target = f"place_id:{place_id}" if place_id else (location_name or url)
+                        if target:
+                            batch_locations.append({"keyword": target, "name": location_name or target})
                     else:
-                        # Old format: plain URL string
                         if link_data:
-                            f = executor.submit(scrape_google_maps_reviews, link_data)
-                            future_map[f] = {'brand': name, 'type': 'maps', 'link': link_data}
+                            batch_locations.append({"keyword": link_data, "name": link_data})
+                
+                if batch_locations:
+                    from services.fetch_maps_reviews import scrape_multiple_locations
+                    f = executor.submit(scrape_multiple_locations, batch_locations)
+                    future_map[f] = {'brand': name, 'type': 'maps_batch', 'locations': [loc['name'] for loc in batch_locations]}
 
         # Track all maps link results (including 0)
         maps_link_results = {}  # {brand: {link: count}}
@@ -277,16 +273,26 @@ def run_scraper_service(job_id, brands_list, progress_callback=None):
                 df = future.result()
                 
                 # Track maps link results
-                if meta['type'] == 'maps':
+                if meta['type'] == 'maps_batch':
                     if brand_name not in maps_link_results:
                         maps_link_results[brand_name] = {}
-                    maps_link_results[brand_name][meta['link']] = len(df) if not df.empty else 0
+                    
+                    # If it's a batch, we need to extract per-location counts if available
+                    # The optimized scrape_multiple_locations adds 'source_location' to the DF
+                    if not df.empty and 'source_location' in df.columns:
+                        for loc in meta['locations']:
+                            loc_df = df[df['source_location'] == loc]
+                            maps_link_results[brand_name][loc] = len(loc_df)
+                    else:
+                        for loc in meta['locations']:
+                            maps_link_results[brand_name][loc] = 0
+                
+                if meta['type'] == 'play' or meta['type'] == 'app':
+                    pass # Standard handling
                 
                 if not df.empty:
                     df['brand'] = brand_name
-                    # Add source link for breakdown if it's maps
-                    if meta['type'] == 'maps':
-                        df['source_link'] = meta.get('link', 'unknown')
+                    # 'source_location' is already in maps batch DF
                     all_dfs.append(df)
             except Exception as e:
                 logger.error(f"Failed task for {brand_name} ({meta['type']}): {e}")

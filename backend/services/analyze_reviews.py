@@ -4,9 +4,45 @@ import json
 import logging
 
 
+from services.email_service import send_email_gmail
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# --- Helper for Status Updates (Matches logic in main.py but imported here for worker usage) ---
+def update_analysis_status(job_id, status, message, processed=0, total=0, error=None, **kwargs):
+    if not job_id: return
+    
+    import boto3
+    import os
+    
+    try:
+        s3 = boto3.client('s3', region_name=os.getenv("AWS_REGION", "eu-central-1"))
+        bucket = os.getenv("S3_BUCKET_NAME", "horus-voc-data-storage-v2-eu")
+        
+        payload = {
+            "status": status, 
+            "message": message, 
+            "job_id": job_id,
+            "processed": processed,
+            "total": total,
+            "task_type": "analysis"
+        }
+        if error:
+            payload["error"] = error
+            
+        # Add extra fields (like dashboard_link, download_url)
+        payload.update(kwargs)
+        s3.put_object(
+            Bucket=bucket,
+            Key=f"processing_status/{job_id}.json",
+            Body=json.dumps(payload),
+            ContentType='application/json'
+        )
+    except Exception as e:
+        logger.error(f"Failed to update status in S3 for {job_id}: {e}")
+
 
 def generate_dimensions(reviews_sample, openai_key):
     """
@@ -56,7 +92,7 @@ def generate_dimensions(reviews_sample, openai_key):
         logger.error(f"Error generating dimensions: {e}")
         return []
 
-def analyze_reviews(file_path, dimensions, openai_key):
+def analyze_reviews(file_path, dimensions, openai_key, job_id=None, progress_callback=None):
     """
     Reads CSV, batches reviews, and sends to OpenAI for sentiment/topic analysis.
     Merges results back into DataFrame and uploads to S3.
@@ -78,6 +114,10 @@ def analyze_reviews(file_path, dimensions, openai_key):
     
     logger.info(f"Starting analysis for {len(df_sample)} reviews.")
     
+    # Initial status update
+    if job_id:
+        update_analysis_status(job_id, "running", "Starting analysis...", 0, len(df_sample))
+    
     analyzed_results = []
     
     # Prepare dimensions list for prompt
@@ -89,8 +129,15 @@ def analyze_reviews(file_path, dimensions, openai_key):
     
     for idx, row in df_sample.iterrows():
         review_num = idx + 1
-        if review_num % 10 == 0 or review_num == total_reviews:
-            logger.info(f"Processing review {review_num}/{total_reviews}...")
+        
+        # Update progress every 5 reviews or on last one
+        if review_num % 5 == 0 or review_num == total_reviews:
+            msg = f"Analyzing review {review_num}/{total_reviews}..."
+            logger.info(msg)
+            if job_id:
+                update_analysis_status(job_id, "running", msg, review_num, total_reviews)
+            if progress_callback:
+                progress_callback(msg)
         
         review_text = row['text']
         
@@ -228,9 +275,9 @@ Remember: Return ONLY the JSON object. No explanations, no markdown code blocks,
     logger.info(f"Saved analyzed reviews to {local_analyzed_path}")
     
     # Upload to S3
-    s3_bucket = "horus-voc-data-visualization"
+    s3_bucket = os.getenv("S3_BUCKET_NAME", "horus-voc-data-storage-v2-eu")
     s3_key = f"analyzed_data/{analyzed_filename}"
-    aws_region = os.getenv("AWS_REGION", "me-central-1")
+    aws_region = os.getenv("AWS_REGION", "eu-central-1")
     
     try:
         s3_client = boto3.client(
@@ -251,11 +298,76 @@ Remember: Return ONLY the JSON object. No explanations, no markdown code blocks,
         )
         
         # Generate dashboard URL with auto-load parameter
+        import urllib.parse
         dashboard_base_url = os.getenv("DASHBOARD_URL", "http://localhost:3000")
-        dashboard_link = f"{dashboard_base_url}/dashboard?csv_url={download_url}"
+        encoded_download_url = urllib.parse.quote(download_url, safe='')
+        dashboard_link = f"{dashboard_base_url}/dashboard?csv_url={encoded_download_url}"
         
+        board_link_msg = f"Dashbaord Link: {dashboard_link}"
         logger.info(f"📥 Download Link: {download_url}")
-        logger.info(f"📊 Dashboard Link: {dashboard_link}")
+        logger.info(f"📊 {board_link_msg}")
+        
+        # Send Email Notification
+        email_sent = False
+        if job_id:
+            import textwrap
+            
+            email_body = textwrap.dedent(f"""
+                Hello,
+                
+                Your VoC Analysis is complete!
+                
+                Analyzed {len(df_sample)} reviews.
+                
+                You can view the interactive dashboard here:
+                {dashboard_link}
+                
+                Or download the raw data:
+                {download_url}
+                
+                Best regards,
+                HorusCX VoC Platform
+            """)
+            
+            email_html = f"""
+            <html>
+                <body>
+                    <h2>VoC Analysis Complete ✅</h2>
+                    <p>We have successfully analyzed <strong>{len(df_sample)}</strong> reviews.</p>
+                    <p>
+                        <a href="{dashboard_link}" style="background-color: #4CAF50; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">
+                            Open Dashboard
+                        </a>
+                    </p>
+                    <p>Or <a href="{download_url}">download the raw CSV data</a>.</p>
+                    <hr>
+                    <p style="font-size: 12px; color: #666;">HorusCX VoC Intelligence Platform</p>
+                </body>
+            </html>
+            """
+            
+            # Send to fixed email as per request
+            target_email = "info@horuscx.com" 
+            try:
+                send_email_gmail(target_email, "VoC Analysis Complete - Dashboard Ready", email_body, email_html)
+                email_sent = True
+            except Exception as e:
+                logger.error(f"Failed to send email: {e}")
+
+        # Final Status Update (Completed)
+        if job_id:
+            update_analysis_status(
+                job_id, 
+                "completed", 
+                "Analysis complete!", 
+                len(df_sample), 
+                len(df_sample),
+                dashboard_link=dashboard_link,
+                csv_download_url=download_url,
+                s3_key=s3_key,
+                s3_bucket=s3_bucket
+            )
+
         
         return {
             "total_reviews": len(df),
@@ -265,7 +377,8 @@ Remember: Return ONLY the JSON object. No explanations, no markdown code blocks,
             "s3_key": s3_key,
             "download_url": download_url,
             "dashboard_link": dashboard_link,
-            "local_path": local_analyzed_path
+            "local_path": local_analyzed_path,
+            "email_sent": email_sent
         }
         
     except NoCredentialsError:
@@ -286,3 +399,7 @@ Remember: Return ONLY the JSON object. No explanations, no markdown code blocks,
             "local_path": local_analyzed_path,
             "error": str(e)
         }
+        
+    finally:
+         if job_id and 'error' in locals() and error: # Update status if we crashed out completely
+             update_analysis_status(job_id, "error", str(error))

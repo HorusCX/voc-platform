@@ -76,13 +76,18 @@ export async function parseCSV(file: File): Promise<ReviewData[]> {
     });
 }
 
-/**
- * Parse CSV from URL
- */
 export async function parseCSVFromURL(url: string): Promise<ReviewData[]> {
     try {
-        // Fetch the CSV content first
-        const response = await fetch(url);
+        // Only use proxy for remote HTTP/S URLs. Blob URLs (from direct file uploads) should be fetched directly.
+        let response: Response;
+        if (url.startsWith('http')) {
+            const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+            const proxyUrl = `${apiUrl}/api/proxy-csv?url=${encodeURIComponent(url)}`;
+            console.log('Fetching CSV via proxy:', proxyUrl);
+            response = await fetch(proxyUrl);
+        } else {
+            response = await fetch(url);
+        }
 
         if (!response.ok) {
             throw new Error(`Failed to fetch CSV: ${response.status} ${response.statusText}`);
