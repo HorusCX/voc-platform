@@ -33,6 +33,9 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
                     setData(res);
                     setStatus('completed');
                     clearInterval(interval);
+                } else if (res.status === 'running') {
+                    // Update data to show progress message
+                    setData(res);
                 } else if (res.status === 'failed' || attempts > maxAttempts) {
                     setStatus('failed');
                     clearInterval(interval);
@@ -97,9 +100,8 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
         try {
             await VoCService.submitDimensions({
                 dimensions: dimensions,
-                // mock bucket/key if missing, as per original logic
-                bucket_name: data?.s3_bucket || 'simulation',
-                file_key: data?.s3_key || 'simulation.pdf'
+                bucket_name: data?.s3_bucket,
+                file_key: data?.s3_key || data?.file_path
             });
             setFinalSuccess(true);
         } catch (e) {
@@ -120,7 +122,8 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
             <Card className="max-w-xl mx-auto text-center py-12">
                 <Loader2 className="h-12 w-12 text-calo-primary animate-spin mx-auto mb-4" />
                 <h2 className="text-xl font-semibold mb-2">Scraping in Progress...</h2>
-                <p className="text-calo-text-secondary">This usually takes 3-5 minutes. You can leave this page open.</p>
+                <p className="text-calo-text-secondary animate-pulse">{data?.message || "Initializing..."}</p>
+                <p className="text-xs text-calo-text-secondary mt-4">This usually takes 3-5 minutes. You can leave this page open.</p>
                 <p className="text-xs text-calo-text-secondary mt-4">Job ID: {jobId}</p>
             </Card>
         );
@@ -161,8 +164,19 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
 
                 {/* SUMMARY TEXT */}
                 {data?.summary && (
-                    <div className="bg-slate-50 rounded-lg p-4 text-left text-sm font-mono text-slate-600 mb-6 whitespace-pre-wrap border border-slate-200">
-                        {data.summary}
+                    <div className="bg-slate-50 rounded-lg p-5 text-left text-sm border border-slate-200 mb-6 shadow-inner">
+                        <h3 className="font-bold text-slate-700 mb-3 uppercase tracking-wider text-xs">Collection Summary</h3>
+                        <div className="space-y-1 font-mono text-slate-600">
+                            {data.summary.split('\n').map((line: string, i: number) => (
+                                <div key={i} className={cn(
+                                    "py-1",
+                                    line.trim() === "" ? "h-2" : "",
+                                    line.startsWith("    -") ? "pl-6 text-xs text-slate-500" : "font-semibold text-slate-800 border-b border-slate-100 pb-1 mt-2 first:mt-0"
+                                )}>
+                                    {line}
+                                </div>
+                            ))}
+                        </div>
                     </div>
                 )}
 
@@ -178,6 +192,28 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
                         </a>
                     )}
 
+                    {/* 1.5 CSV Download Link */}
+                    {data?.csv_download_url && (
+                        <>
+                            <a
+                                href={data.csv_download_url.startsWith('http') ? data.csv_download_url : `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}${data.csv_download_url}`}
+                                download
+                                target="_blank"
+                                className="inline-flex items-center justify-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 px-6 py-3 rounded-lg font-bold shadow-sm transition-colors"
+                            >
+                                <ExternalLink className="h-4 w-4" /> Download CSV
+                            </a>
+
+                            {/* View Dashboard Button */}
+                            <a
+                                href={`/dashboard?csv_url=${encodeURIComponent(data.csv_download_url)}`}
+                                className="inline-flex items-center justify-center gap-2 bg-teal-500 hover:bg-teal-600 text-white px-6 py-3 rounded-lg font-bold shadow-md transition-colors"
+                            >
+                                📊 View Dashboard
+                            </a>
+                        </>
+                    )}
+
                     {/* 2. Forward / Process Button */}
                     {dimensions.length === 0 && (
                         <button
@@ -185,7 +221,7 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
                             disabled={submittingDims}
                             className="inline-flex items-center justify-center gap-2 bg-calo-primary hover:bg-calo-dark text-white px-6 py-3 rounded-full font-bold shadow-md transition-colors disabled:opacity-70"
                         >
-                            {submittingDims ? <Loader2 className="animate-spin" /> : "Process Extracted Data ⚡"}
+                            {submittingDims ? <Loader2 className="animate-spin" /> : "Generate Dimensions ⚡"}
                         </button>
                     )}
                 </div>
@@ -202,7 +238,7 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
                                     <div>
                                         <label className="text-xs font-bold uppercase text-calo-text-secondary">Dimension</label>
                                         <input
-                                            className="w-full mt-1 px-3 py-2 border border-calo-border rounded text-sm bg-white focus:ring-1 focus:ring-calo-primary"
+                                            className="w-full mt-1 px-3 py-2 border border-calo-border rounded text-sm bg-white text-slate-800 focus:ring-1 focus:ring-calo-primary"
                                             value={dim.dimension}
                                             onChange={(e) => updateDimension(idx, 'dimension', e.target.value)}
                                         />
@@ -211,7 +247,7 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
                                         <label className="text-xs font-bold uppercase text-calo-text-secondary">Description</label>
                                         <textarea
                                             rows={2}
-                                            className="w-full mt-1 px-3 py-2 border border-calo-border rounded text-sm bg-white focus:ring-1 focus:ring-calo-primary"
+                                            className="w-full mt-1 px-3 py-2 border border-calo-border rounded text-sm bg-white text-slate-800 focus:ring-1 focus:ring-calo-primary"
                                             value={dim.description}
                                             onChange={(e) => updateDimension(idx, 'description', e.target.value)}
                                         />
@@ -219,7 +255,7 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
                                     <div>
                                         <label className="text-xs font-bold uppercase text-calo-text-secondary">Keywords (Comma Separated)</label>
                                         <input
-                                            className="w-full mt-1 px-3 py-2 border border-calo-border rounded text-sm bg-white focus:ring-1 focus:ring-calo-primary"
+                                            className="w-full mt-1 px-3 py-2 border border-calo-border rounded text-sm bg-white text-slate-800 focus:ring-1 focus:ring-calo-primary"
                                             value={Array.isArray(dim.keywords) ? dim.keywords.join(', ') : dim.keywords}
                                             onChange={(e) => updateDimension(idx, 'keywords', e.target.value.split(',').map((s: string) => s.trim()))}
                                         />

@@ -19,6 +19,7 @@ export interface Company {
     description?: string;
     android_id?: string;
     apple_id?: string;
+    google_maps_links?: (string | { name: string; url: string; place_id?: string; reviews_count?: number })[];
     is_main?: boolean;
 }
 
@@ -66,6 +67,11 @@ export const VoCService = {
 
     submitDimensions: async (payload: any) => {
         const response = await api.post('/api/final-analysis', payload);
+        return response.data;
+    },
+
+    discoverMapsLinks: async (companyName: string, website: string) => {
+        const response = await api.post<{ links?: string[]; locations?: Array<{ place_id: string; name: string; url: string }> }>('/api/discover-maps', { company_name: companyName, website });
         return response.data;
     }
 };

@@ -15,6 +15,45 @@ export default function VocStepper() {
         jobId?: string;
     }>({});
 
+    const handleSimulation = () => {
+        const mockData: Company[] = [
+            {
+                company_name: "Budget Saudi",
+                website: "https://budget.com.sa",
+                android_id: "com.budget.saudi",
+                apple_id: "892721808",
+                google_maps_links: [
+                    {
+                        name: "Budget Rent A Car",
+                        url: "https://www.google.com/maps/place/?q=place_id:ChIJYzT2-vDXwxURTvXZEsJ3KfU",
+                        place_id: "ChIJYzT2-vDXwxURTvXZEsJ3KfU",
+                        reviews_count: 100
+                    },
+                    {
+                        name: "Budget Rent A Car | Jeddah Airport North Terminal",
+                        url: "https://www.google.com/maps/place/?q=place_id:ChIJxSU9CGgDLz4R6jNnwpbRzkI",
+                        place_id: "ChIJxSU9CGgDLz4R6jNnwpbRzkI",
+                        reviews_count: 74
+                    },
+                    {
+                        name: "Budget Rent A Car | Jeddah Airport New Terminal 1",
+                        url: "https://www.google.com/maps/place/?q=place_id:ChIJXcnJcuYHLz4Rb3JUgt41cLM",
+                        place_id: "ChIJXcnJcuYHLz4Rb3JUgt41cLM",
+                        reviews_count: 100
+                    },
+                    {
+                        name: "Budget Rent A Car | King Abdulaziz International Airport",
+                        url: "https://www.google.com/maps/place/?q=place_id:ChIJLU2MzHbxLj4RdtYo3YAJ4Cw",
+                        place_id: "ChIJLU2MzHbxLj4RdtYo3YAJ4Cw",
+                        reviews_count: 100
+                    }
+                ]
+            }
+        ];
+        setData({ competitors: mockData });
+        setStep(3);
+    };
+
     const handleStep1Complete = (companies: Company[]) => {
         setData((prev) => ({ ...prev, competitors: companies }));
         setStep(2);
@@ -37,7 +76,7 @@ export default function VocStepper() {
 
     // Render Logic
     return (
-        <div className="w-full max-w-4xl mx-auto px-4 py-8">
+        <div className="w-full max-w-4xl mx-auto px-4 py-8 relative">
 
             {/* Stepper Header (Only show for steps 1-3) */}
             {step < 4 && (
@@ -70,6 +109,18 @@ export default function VocStepper() {
                             </span>
                         </div>
                     ))}
+                </div>
+            )}
+
+            {/* Simulation Button (Dev only) */}
+            {step < 3 && (
+                <div className="absolute top-4 right-4">
+                    <button
+                        onClick={handleSimulation}
+                        className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-500 px-3 py-1 rounded border border-slate-300"
+                    >
+                        ⚡ Simulate Data
+                    </button>
                 </div>
             )}
 
