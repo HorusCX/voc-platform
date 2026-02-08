@@ -53,46 +53,95 @@ export function StepAppIds({ initialData, onComplete }: StepAppIdsProps) {
         const item = items[index];
         if (!item.company_name) return;
 
+        console.log(`🔍 Starting discovery for ${item.company_name} (index: ${index})`);
         setDiscoveringIndex(index);
         try {
-            const data = await VoCService.discoverMapsLinks(item.company_name, item.website || "");
+            // Step 1: Start discovery job (returns immediately with job_id)
+            const { job_id } = await VoCService.discoverMapsLinks(
+                item.company_name,
+                item.website || ""
+            );
 
-            // Handle new format: locations is array of {place_id, name, url, reviews_count}
-            const existingLinks = item.google_maps_links || [];
-            const newLocations = data.locations || data.links || [];
+            console.log(`✅ Discovery job started: ${job_id}`);
 
-            // Convert location objects to structured format for display
-            const newLinks = newLocations.map((loc: any) => {
-                if (typeof loc === 'string') {
-                    return { name: loc, url: '', reviews_count: null, place_id: '' };
+            // Step 2: Poll for results
+            const pollInterval = setInterval(async () => {
+                try {
+                    const statusData = await VoCService.checkStatus(job_id);
+                    console.log(`📊 Poll status for ${item.company_name}:`, statusData.status);
+
+                    if (statusData.status === "completed") {
+                        clearInterval(pollInterval);
+
+                        // Extract locations from result
+                        const newLocations = statusData.result?.locations || [];
+                        console.log(`🎯 Discovery complete for ${item.company_name}: ${newLocations.length} locations found`);
+                        console.log('First location:', newLocations[0]);
+
+                        // Handle new format: locations is array of {place_id, name, url, reviews_count}
+                        const existingLinks = item.google_maps_links || [];
+
+                        // Convert location objects to structured format for display
+                        const newLinks = newLocations.map((loc: any) => {
+                            if (typeof loc === 'string') {
+                                return { name: loc, url: '', reviews_count: null, place_id: '' };
+                            }
+                            return {
+                                name: loc.name || loc.url || '',
+                                url: loc.url || '',
+                                reviews_count: loc.reviews_count || null,
+                                place_id: loc.place_id || ''
+                            };
+                        }).filter((loc: any) => loc.name);
+
+                        console.log(`📍 Processed ${newLinks.length} valid locations`);
+
+                        // Merge with existing, avoiding duplicates by name
+                        const existingNames = new Set(existingLinks.map((l: any) => typeof l === 'string' ? l : l.name));
+                        const mergedLinks = [
+                            ...existingLinks.map((l: any) => typeof l === 'string' ? { name: l, url: '', reviews_count: null, place_id: '' } : l),
+                            ...newLinks.filter((l: any) => !existingNames.has(l.name))
+                        ];
+
+                        console.log(`🔗 Total links after merge: ${mergedLinks.length}`);
+
+                        // Use functional update to ensure fresh state if called in loop
+                        setItems(currentItems => {
+                            const newItems = [...currentItems];
+                            console.log(`🔄 Updating state - current items count: ${newItems.length}, index: ${index}`);
+                            if (newItems[index]) {
+                                console.log(`✏️ Updating ${newItems[index].company_name} with ${mergedLinks.length} links`);
+                                newItems[index] = { ...newItems[index], google_maps_links: mergedLinks };
+                            } else {
+                                console.error(`❌ Index ${index} not found in items array!`);
+                            }
+                            return newItems;
+                        });
+
+                        setDiscoveringIndex(null);
+
+                    } else if (statusData.status === "error") {
+                        clearInterval(pollInterval);
+                        console.error("Discovery error:", statusData.message);
+                        setDiscoveringIndex(null);
+                    }
+                    // else: still processing, keep polling
+
+                } catch (pollErr) {
+                    console.error("Polling error:", pollErr);
+                    // Don't clear interval, keep trying
                 }
-                return {
-                    name: loc.name || loc.url || '',
-                    url: loc.url || '',
-                    reviews_count: loc.reviews_count || null,
-                    place_id: loc.place_id || ''
-                };
-            }).filter((loc: any) => loc.name);
+            }, 3000); // Poll every 3 seconds
 
-            // Merge with existing, avoiding duplicates by name
-            const existingNames = new Set(existingLinks.map((l: any) => typeof l === 'string' ? l : l.name));
-            const mergedLinks = [
-                ...existingLinks.map((l: any) => typeof l === 'string' ? { name: l, url: '', reviews_count: null, place_id: '' } : l),
-                ...newLinks.filter((l: any) => !existingNames.has(l.name))
-            ];
-
-            // Use functional update to ensure fresh state if called in loop
-            setItems(currentItems => {
-                const newItems = [...currentItems];
-                if (newItems[index]) {
-                    newItems[index] = { ...newItems[index], google_maps_links: mergedLinks };
-                }
-                return newItems;
-            });
+            // Timeout after 2 minutes
+            setTimeout(() => {
+                clearInterval(pollInterval);
+                setDiscoveringIndex(null);
+                console.error("Discovery timeout");
+            }, 120000);
 
         } catch (err) {
-            console.error("Discovery failed", err);
-        } finally {
+            console.error("Discovery failed to start", err);
             setDiscoveringIndex(null);
         }
     };

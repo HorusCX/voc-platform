@@ -15,6 +15,7 @@ import logging
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Optional
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -50,7 +51,7 @@ def _parse_timestamp(timestamp_str: str) -> str:
 
 def _create_review_task(keyword: str = None, location: str = "Saudi Arabia", 
                          language: str = "English", depth: int = 100,
-                         place_id: str = None, cid: str = None) -> str | None:
+                         place_id: str = None, cid: str = None) -> Optional[str]:
     """
     Create a review scraping task via DataForSEO API.
     Returns task_id if successful, None otherwise.

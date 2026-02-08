@@ -11,6 +11,7 @@ import pandas as pd
 from datetime import datetime
 import urllib.parse
 import logging
+import json
 
 import boto3
 from botocore.exceptions import NoCredentialsError
@@ -136,8 +137,8 @@ async def api_analyze_website(request: WebsiteRequest):
 
 @app.get("/api/check-status")
 async def check_status(job_id: str):
-    # 1. Check if it's a scraping job or analysis job
-    # For simplicity, we check S3 for both patterns.
+    # 1. Check if it's a scraping job, analysis job, or discovery job
+    # For simplicity, we check S3 for all patterns.
     
     s3_client = boto3.client('s3', region_name=AWS_REGION)
     
@@ -155,7 +156,23 @@ async def check_status(job_id: str):
     except Exception as e:
         logger.error(f"Error checking analysis status: {e}")
 
-    # Path B: Scraping Job (Existing)
+    # Path B: Discovery Result (NEW)
+    if job_id.startswith("discovery_"):
+        discovery_key = f"discovery_results/{job_id}.json"
+        try:
+            response = s3_client.get_object(Bucket=S3_BUCKET_NAME, Key=discovery_key)
+            data = json.loads(response['Body'].read().decode('utf-8'))
+            return {
+                "status": "completed",
+                "result": data
+            }
+        except s3_client.exceptions.NoSuchKey:
+            return {"status": "processing", "message": "Discovering locations..."}
+        except Exception as e:
+            logger.error(f"Error checking discovery status: {e}")
+            return {"status": "error", "message": str(e)}
+
+    # Path C: Scraping Job (Existing)
     # We check local JOBS dict first (legacy/local support) or S3
     job = JOBS.get(job_id)
     if not job:
@@ -180,6 +197,92 @@ async def check_status(job_id: str):
              job["csv_download_url"] = url
              
     return job
+
+@app.post("/api/appids")
+async def api_resolve_app_ids(companies: List[Company]):
+    """
+    Resolve Android and Apple App IDs for a list of companies.
+    """
+    try:
+        # Convert Pydantic models to dicts for the service
+        company_dicts = [company.dict() for company in companies]
+        
+        # Resolve app IDs using the service
+        resolved = resolve_app_ids(company_dicts, OPENAI_API_KEY)
+        
+        # Convert back to Company models
+        return [Company(**c) for c in resolved]
+        
+    except Exception as e:
+        logger.error(f"Error resolving app IDs: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to resolve app IDs: {str(e)}")
+
+@app.post("/api/scrap-reviews")
+async def api_scrap_reviews(request: ScrapRequest):
+    """
+    Start scraping reviews for the given brands.
+    Pushes job to SQS queue for async processing.
+    """
+    job_id = request.job_id or str(uuid.uuid4())
+    
+    # Convert companies to dict format
+    brands_list = [brand.dict() for brand in request.brands]
+    
+    # Push to SQS
+    if SQS_QUEUE_URL:
+        try:
+            queue_service = QueueService(region_name=AWS_REGION)
+            message_body = {
+                "task_type": "scraping",
+                "job_id": job_id,
+                "brands_list": brands_list
+            }
+            queue_service.send_message(SQS_QUEUE_URL, message_body)
+            logger.info(f"✅ Scraping Job {job_id} pushed to SQS")
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to push scraping job to SQS: {e}")
+            raise HTTPException(status_code=500, detail="Failed to queue scraping job")
+    else:
+        raise HTTPException(status_code=500, detail="SQS_QUEUE_URL not configured")
+    
+    return {"message": "Scraping started", "job_id": job_id}
+
+@app.post("/api/discover-maps")
+async def api_discover_maps(request: dict):
+    """
+    Start async discovery job for Google Maps locations.
+    Returns job_id immediately for polling.
+    """
+    company_name = request.get("company_name")
+    website = request.get("website")
+    
+    if not company_name:
+        raise HTTPException(status_code=400, detail="company_name is required")
+    
+    # Generate job ID
+    job_id = f"discovery_{company_name.replace(' ', '_')}_{str(uuid.uuid4())[:8]}"
+    
+    # Push to SQS
+    if SQS_QUEUE_URL:
+        try:
+            queue_service = QueueService(region_name=AWS_REGION)
+            message_body = {
+                "task_type": "discover_locations",
+                "job_id": job_id,
+                "company_name": company_name,
+                "website": website
+            }
+            queue_service.send_message(SQS_QUEUE_URL, message_body)
+            logger.info(f"✅ Discovery Job {job_id} pushed to SQS")
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to push discovery job to SQS: {e}")
+            raise HTTPException(status_code=500, detail="Failed to queue discovery job")
+    else:
+        raise HTTPException(status_code=500, detail="SQS_QUEUE_URL not configured")
+    
+    return {"job_id": job_id, "status": "processing"}
 
 # --- Background Worker Function (Deprecated in Main, moved to worker.py) ---
 # def process_scraping_job(job_id, brands_list): ...

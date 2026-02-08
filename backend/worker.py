@@ -81,6 +81,51 @@ def process_message(message_body):
         except Exception as e:
             logger.error(f"❌ Website analysis failed: {e}")
 
+    elif task_type == "discover_locations":
+        logger.info(f"🗺️ Processing LOCATION DISCOVERY task: {message_body.get('job_id')}")
+        job_id = message_body.get("job_id")
+        company_name = message_body.get("company_name")
+        website = message_body.get("website")
+        
+        try:
+            from services.discover_maps_locations import discover_maps_links
+            import boto3
+            
+            # Execute discovery (30-60 seconds)
+            logger.info(f"   Discovering locations for '{company_name}'...")
+            locations = discover_maps_links(company_name, website)
+            
+            # Save to S3
+            s3_bucket = os.getenv("S3_BUCKET_NAME")
+            if s3_bucket:
+                s3_key = f"discovery_results/{job_id}.json"
+                s3 = boto3.client('s3', region_name=AWS_REGION)
+                s3.put_object(
+                    Bucket=s3_bucket,
+                    Key=s3_key,
+                    Body=json.dumps({"locations": locations}),
+                    ContentType='application/json'
+                )
+                logger.info(f"✅ Discovery saved to s3://{s3_bucket}/{s3_key}")
+                logger.info(f"   Found {len(locations)} locations for {company_name}")
+            else:
+                logger.error("❌ S3 Bucket not configured")
+                
+        except Exception as e:
+            logger.error(f"❌ Location discovery failed: {e}")
+            # Save error to S3
+            s3_bucket = os.getenv("S3_BUCKET_NAME")
+            if s3_bucket:
+                import boto3
+                s3_key = f"discovery_results/{job_id}.json"
+                s3 = boto3.client('s3', region_name=AWS_REGION)
+                s3.put_object(
+                    Bucket=s3_bucket,
+                    Key=s3_key,
+                    Body=json.dumps({"error": str(e), "locations": []}),
+                    ContentType='application/json'
+                )
+
     elif task_type == "analysis":
         logger.info(f"🧠 Processing ANALYSIS task: {message_body.get('file_path')}")
         file_path = message_body.get("file_path")

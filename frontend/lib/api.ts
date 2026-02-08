@@ -29,8 +29,8 @@ export interface ScrapRequest {
 }
 
 export interface JobStatus {
-    status: 'pending' | 'running' | 'completed' | 'failed';
-    message: string;
+    status: 'pending' | 'running' | 'completed' | 'failed' | 'processing' | 'error';
+    message?: string;
     s3_key?: string;
     summary?: string;
     dashboard_link?: string;
@@ -71,7 +71,7 @@ export const VoCService = {
     },
 
     discoverMapsLinks: async (companyName: string, website: string) => {
-        const response = await api.post<{ links?: string[]; locations?: Array<{ place_id: string; name: string; url: string }> }>('/api/discover-maps', { company_name: companyName, website });
+        const response = await api.post<{ job_id: string; status: string }>('/api/discover-maps', { company_name: companyName, website });
         return response.data;
     }
 };

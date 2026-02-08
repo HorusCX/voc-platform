@@ -12,3 +12,5 @@ frontend/.next/
 frontend/out/
 backend/data/
 *.log
+playwright-report/
+test-results/
