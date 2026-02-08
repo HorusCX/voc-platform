@@ -84,7 +84,7 @@ export async function parseCSVFromURL(url: string): Promise<ReviewData[]> {
         // If it's an S3 URL, we should fetch directly now that CORS is enabled.
         const isS3Url = url.includes('s3') || url.includes('amazonaws');
 
-        let response: Response;
+
         if (url.startsWith('http') && !isS3Url) {
             const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
             const proxyUrl = `${apiUrl}/api/proxy-csv?url=${encodeURIComponent(url)}`;
