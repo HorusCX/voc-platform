@@ -80,12 +80,19 @@ export async function parseCSVFromURL(url: string): Promise<ReviewData[]> {
     try {
         // Only use proxy for remote HTTP/S URLs. Blob URLs (from direct file uploads) should be fetched directly.
         let response: Response;
-        if (url.startsWith('http')) {
+        // Only use proxy for remote HTTP/S URLs if they are NOT from our S3 bucket
+        // If it's an S3 URL, we should fetch directly now that CORS is enabled.
+        const isS3Url = url.includes('s3') || url.includes('amazonaws');
+
+        let response: Response;
+        if (url.startsWith('http') && !isS3Url) {
             const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
             const proxyUrl = `${apiUrl}/api/proxy-csv?url=${encodeURIComponent(url)}`;
             console.log('Fetching CSV via proxy:', proxyUrl);
             response = await fetch(proxyUrl);
         } else {
+            // Direct fetch for Blob URLs OR S3 URLs
+            console.log('Fetching CSV directly:', url);
             response = await fetch(url);
         }
 
