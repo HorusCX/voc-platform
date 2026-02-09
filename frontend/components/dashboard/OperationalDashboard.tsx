@@ -1,12 +1,55 @@
 "use client";
 
 import { DashboardData } from "@/lib/dashboard-utils";
+import { useState, useMemo } from "react";
+import { ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 
 interface OperationalDashboardProps {
     data: DashboardData;
 }
 
+type SortConfig = {
+    key: string;
+    direction: 'asc' | 'desc';
+} | null;
+
 export function OperationalDashboard({ data }: OperationalDashboardProps) {
+    const [sortConfig, setSortConfig] = useState<SortConfig>(null);
+
+    const sortedData = useMemo(() => {
+        if (!sortConfig) return data.dimensionStats;
+
+        return [...data.dimensionStats].sort((a: any, b: any) => {
+            const aValue = a[sortConfig.key];
+            const bValue = b[sortConfig.key];
+
+            if (aValue < bValue) {
+                return sortConfig.direction === 'asc' ? -1 : 1;
+            }
+            if (aValue > bValue) {
+                return sortConfig.direction === 'asc' ? 1 : -1;
+            }
+            return 0;
+        });
+    }, [data.dimensionStats, sortConfig]);
+
+    const requestSort = (key: string) => {
+        let direction: 'asc' | 'desc' = 'desc';
+        if (sortConfig && sortConfig.key === key && sortConfig.direction === 'desc') {
+            direction = 'asc';
+        }
+        setSortConfig({ key, direction });
+    };
+
+    const getSortIcon = (key: string) => {
+        if (!sortConfig || sortConfig.key !== key) {
+            return <ArrowUpDown className="w-3 h-3 text-muted-foreground/30" />;
+        }
+        return sortConfig.direction === 'asc' 
+            ? <ArrowUp className="w-3 h-3 text-primary" />
+            : <ArrowDown className="w-3 h-3 text-primary" />;
+    };
+
     return (
         <div className="space-y-8">
             {/* Strength & Weakness Analysis */}
@@ -93,16 +136,64 @@ export function OperationalDashboard({ data }: OperationalDashboardProps) {
                         <thead>
                             <tr className="bg-muted/50 border-b border-border">
                                 <th className="py-3 px-6 font-medium text-muted-foreground text-xs uppercase tracking-wider">Rank</th>
-                                <th className="py-3 px-6 font-medium text-muted-foreground text-xs uppercase tracking-wider">Dimension</th>
-                                <th className="py-3 px-6 font-medium text-muted-foreground text-xs uppercase tracking-wider text-right">Vol</th>
-                                <th className="py-3 px-6 font-medium text-muted-foreground text-xs uppercase tracking-wider text-right">Pos %</th>
-                                <th className="py-3 px-6 font-medium text-muted-foreground text-xs uppercase tracking-wider text-right">Neg %</th>
-                                <th className="py-3 px-6 font-medium text-muted-foreground text-xs uppercase tracking-wider text-right">Net</th>
-                                <th className="py-3 px-6 font-medium text-muted-foreground text-xs uppercase tracking-wider text-right">Impact</th>
+                                <th 
+                                    className="py-3 px-6 font-medium text-muted-foreground text-xs uppercase tracking-wider cursor-pointer hover:text-foreground transition-colors group select-none"
+                                    onClick={() => requestSort('dimension')}
+                                >
+                                    <div className="flex items-center gap-1">
+                                        Dimension
+                                        {getSortIcon('dimension')}
+                                    </div>
+                                </th>
+                                <th 
+                                    className="py-3 px-6 font-medium text-muted-foreground text-xs uppercase tracking-wider text-right cursor-pointer hover:text-foreground transition-colors group select-none"
+                                    onClick={() => requestSort('total')}
+                                >
+                                    <div className="flex items-center justify-end gap-1">
+                                        Vol
+                                        {getSortIcon('total')}
+                                    </div>
+                                </th>
+                                <th 
+                                    className="py-3 px-6 font-medium text-muted-foreground text-xs uppercase tracking-wider text-right cursor-pointer hover:text-foreground transition-colors group select-none"
+                                    onClick={() => requestSort('positivePercent')}
+                                >
+                                    <div className="flex items-center justify-end gap-1">
+                                        Pos %
+                                        {getSortIcon('positivePercent')}
+                                    </div>
+                                </th>
+                                <th 
+                                    className="py-3 px-6 font-medium text-muted-foreground text-xs uppercase tracking-wider text-right cursor-pointer hover:text-foreground transition-colors group select-none"
+                                    onClick={() => requestSort('negativePercent')}
+                                >
+                                    <div className="flex items-center justify-end gap-1">
+                                        Neg %
+                                        {getSortIcon('negativePercent')}
+                                    </div>
+                                </th>
+                                <th 
+                                    className="py-3 px-6 font-medium text-muted-foreground text-xs uppercase tracking-wider text-right cursor-pointer hover:text-foreground transition-colors group select-none"
+                                    onClick={() => requestSort('netSentiment')}
+                                >
+                                    <div className="flex items-center justify-end gap-1">
+                                        Net
+                                        {getSortIcon('netSentiment')}
+                                    </div>
+                                </th>
+                                <th 
+                                    className="py-3 px-6 font-medium text-muted-foreground text-xs uppercase tracking-wider text-right cursor-pointer hover:text-foreground transition-colors group select-none"
+                                    onClick={() => requestSort('impact')}
+                                >
+                                    <div className="flex items-center justify-end gap-1">
+                                        Impact
+                                        {getSortIcon('impact')}
+                                    </div>
+                                </th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-border">
-                            {data.dimensionStats.map((dim, idx) => (
+                            {sortedData.map((dim, idx) => (
                                 <tr
                                     key={idx}
                                     className="hover:bg-muted/50 transition-colors"
