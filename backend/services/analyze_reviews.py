@@ -102,6 +102,7 @@ def analyze_reviews(file_path, dimensions, openai_key, job_id=None, progress_cal
     import os
     from datetime import datetime
     
+    error = None
     try:
         if os.path.exists(file_path):
             df = pd.read_csv(file_path)
@@ -113,7 +114,11 @@ def analyze_reviews(file_path, dimensions, openai_key, job_id=None, progress_cal
             obj = s3.get_object(Bucket=s3_bucket, Key=file_path)
             df = pd.read_csv(obj['Body'])
     except Exception as e:
-        return {"error": f"Could not read file: {e}"}
+        error_msg = f"Could not read file: {e}"
+        logger.error(error_msg)
+        if job_id:
+            update_analysis_status(job_id, "error", error_msg)
+        return {"error": error_msg}
         
     client = OpenAI(api_key=openai_key)
     
@@ -400,6 +405,7 @@ Remember: Return ONLY the JSON object. No explanations, no markdown code blocks,
         }
     except Exception as e:
         logger.error(f"❌ Error uploading to S3: {e}")
+        error = e
         return {
             "total_reviews": len(df),
             "analyzed_count": len(df_sample),
@@ -409,5 +415,5 @@ Remember: Return ONLY the JSON object. No explanations, no markdown code blocks,
         }
         
     finally:
-         if job_id and 'error' in locals() and error: # Update status if we crashed out completely
+         if job_id and error: # Update status if we crashed out completely
              update_analysis_status(job_id, "error", str(error))

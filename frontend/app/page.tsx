@@ -1,26 +1,25 @@
 import VocStepper from "@/components/stepper/VocStepper";
-import Link from "next/link";
 
 export default function Home() {
   return (
-    <main className="min-h-screen bg-slate-50 flex flex-col items-center py-12 font-[family-name:var(--font-geist-sans)]">
-      <div className="w-full max-w-5xl px-4 mb-8">
-        <div className="flex items-center justify-between">
-          <div className="text-center flex-1">
-            <h1 className="text-4xl font-extrabold text-slate-800 mb-2 tracking-tight">
-              VoC Intelligence Platform
-            </h1>
-            <p className="text-slate-500 text-lg">
-              Automated Review Analysis &amp; Insight Generation
-            </p>
-          </div>
-        </div>
+    <main className="min-h-screen flex flex-col items-center py-24 font-sans selection:bg-primary/10">
+      <div className="w-full max-w-3xl px-6 mb-16 text-center">
+        <h1 className="text-4xl sm:text-5xl font-semibold text-foreground mb-4 tracking-tight">
+          VoC Intelligence Platform
+        </h1>
+        <p className="text-muted-foreground text-lg sm:text-xl font-medium tracking-tight">
+          Automated Review Analysis &amp; Insight Generation
+        </p>
       </div>
 
-      <VocStepper />
+      <div className="w-full max-w-5xl px-4">
+        <VocStepper />
+      </div>
 
-      <footer className="mt-16 text-xs text-slate-400">
-        &copy; {new Date().getFullYear()} HorusCX. All rights reserved.
+      <footer className="mt-auto pt-24 pb-12 text-center">
+        <p className="text-xs font-medium text-zinc-400">
+          &copy; {new Date().getFullYear()} HorusCX. All rights reserved.
+        </p>
       </footer>
     </main>
   );

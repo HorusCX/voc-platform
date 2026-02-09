@@ -70,14 +70,14 @@ export function StepCompetitors({ initialData, onComplete }: StepCompetitorsProp
 
                 <div className="space-y-3">
                     {items.map((item, index) => (
-                        <div key={index} className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                        <div key={index} className="p-3 bg-card rounded-lg border border-border shadow-sm">
                             <div className="flex justify-between items-center mb-2">
                                 <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
                                     #{index + 1}
                                 </span>
                                 <button
                                     onClick={() => removeItem(index)}
-                                    className="text-slate-400 hover:text-red-500 transition-colors"
+                                    className="text-muted-foreground hover:text-destructive transition-colors"
                                     title="Remove"
                                 >
                                     <Trash2 className="h-4 w-4" />
@@ -89,14 +89,14 @@ export function StepCompetitors({ initialData, onComplete }: StepCompetitorsProp
                                     placeholder="Company Name"
                                     value={item.company_name || ""}
                                     onChange={(e) => updateItem(index, "company_name", e.target.value)}
-                                    className="w-full rounded border border-calo-border px-3 py-1.5 text-sm focus:ring-1 focus:ring-calo-primary text-calo-text-main"
+                                    className="w-full rounded border border-input px-3 py-1.5 text-sm focus:ring-1 focus:ring-ring text-foreground bg-background placeholder:text-muted-foreground"
                                 />
                                 <input
                                     type="text"
                                     placeholder="Website (Optional)"
                                     value={item.website || ""}
                                     onChange={(e) => updateItem(index, "website", e.target.value)}
-                                    className="w-full rounded border border-calo-border px-3 py-1.5 text-sm focus:ring-1 focus:ring-calo-primary text-calo-text-main"
+                                    className="w-full rounded border border-input px-3 py-1.5 text-sm focus:ring-1 focus:ring-ring text-foreground bg-background placeholder:text-muted-foreground"
                                 />
                             </div>
                         </div>
@@ -105,17 +105,17 @@ export function StepCompetitors({ initialData, onComplete }: StepCompetitorsProp
 
                 <button
                     onClick={addItem}
-                    className="w-full py-2 border-2 border-dashed border-calo-border rounded-lg text-calo-text-secondary hover:border-calo-primary hover:text-calo-primary flex items-center justify-center gap-2 transition-colors"
+                    className="w-full py-2 border-2 border-dashed border-input rounded-lg text-muted-foreground hover:border-primary hover:text-primary flex items-center justify-center gap-2 transition-colors"
                 >
                     <Plus className="h-4 w-4" /> Add Competitor
                 </button>
 
-                {error && <p className="text-sm text-red-500">{error}</p>}
+                {error && <p className="text-sm text-destructive">{error}</p>}
 
                 <button
                     onClick={handleSubmit}
                     disabled={loading}
-                    className="w-full mt-4 flex items-center justify-center gap-2 bg-calo-primary hover:bg-calo-dark text-white font-bold py-3 px-4 rounded-full transition-colors disabled:opacity-70 disabled:cursor-not-allowed shadow-sm"
+                    className="w-full mt-4 flex items-center justify-center gap-2 bg-primary hover:bg-primary/90 text-primary-foreground font-semibold py-4 px-6 rounded-full shadow-lg hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed transform hover:-translate-y-0.5"
                 >
                     {loading ? (
                         <>

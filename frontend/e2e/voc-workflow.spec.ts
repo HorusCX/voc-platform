@@ -85,14 +85,42 @@ test('VoC Full Workflow - Scraping Initiation', async ({ page }) => {
         });
     });
 
+    let checkStatusCount = 0;
     await page.route('**/api/check-status?job_id=*', async route => {
-        console.log('Mock: check-status hit');
+        console.log('Mock: check-status hit', checkStatusCount);
+        checkStatusCount++;
+        if (checkStatusCount <= 2) {
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    status: "running",
+                    message: "Scraping in progress..."
+                })
+            });
+        } else {
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    status: "completed",
+                    message: "Scraping complete",
+                    s3_key: "test_results.csv",
+                    summary: "- Calo: 100 reviews\n- Diet Center: 50 reviews"
+                })
+            });
+        }
+    });
+
+    await page.route('**/api/scrapped-data', async route => {
         await route.fulfill({
             status: 200,
             contentType: 'application/json',
             body: JSON.stringify({
-                status: "running",
-                message: "Scraping in progress..."
+                dimensions: [
+                    { dimension: "Quality", description: "Product quality", keywords: ["quality", "good"] },
+                    { dimension: "Price", description: "Product price", keywords: ["price", "cheap"] }
+                ]
             })
         });
     });
@@ -119,16 +147,33 @@ test('VoC Full Workflow - Scraping Initiation', async ({ page }) => {
     await expect(page.locator('h4:has-text("Calo")')).toBeVisible();
 
     // Start Scraping
-    // Note: We need to wait for discover-maps to finish updating validation probably? 
-    // But button is enabled. 
     const startScrapingButton = page.locator('button:has-text("Start Scraping")');
 
     // Wait for button to be enabled (loading might be true for a split second)
     await expect(startScrapingButton).toBeEnabled();
     await startScrapingButton.click();
 
-    // Verify transition to success/progress view
+    // Verify transition to progress view
     await expect(page.locator('h2:has-text("Scraping in Progress...")')).toBeVisible({ timeout: 10000 });
 
-    console.log('Scraping initiated successfully (Test Complete).');
+    // Wait for success view (after polling mock switches to completed)
+    await expect(page.locator('h2:has-text("Scraping Complete!")')).toBeVisible({ timeout: 20000 });
+
+    // --- VERIFY BUTTON FIX 1 ---
+    const generateInsightsButton = page.locator('button:has-text("Analyze Reviews & Generate Insights ⚡")');
+    await expect(generateInsightsButton).toBeVisible();
+    await expect(generateInsightsButton).toHaveClass(/bg-indigo-600/);
+
+    // Click it to trigger dimension generation
+    await generateInsightsButton.click();
+
+    // Wait for dimensions to appear
+    await expect(page.locator('text=Dimensions Analysis')).toBeVisible({ timeout: 5000 });
+
+    // --- VERIFY BUTTON FIX 2 ---
+    const startAnalysisButton = page.locator('button:has-text("Start Analysis & Generate Dashboard 🚀")');
+    await expect(startAnalysisButton).toBeVisible();
+    await expect(startAnalysisButton).toHaveClass(/bg-indigo-600/);
+
+    console.log('Scraping initiated AND buttons verified successfully.');
 });

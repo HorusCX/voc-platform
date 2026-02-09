@@ -10,60 +10,72 @@ export function OperationalDashboard({ data }: OperationalDashboardProps) {
     return (
         <div className="space-y-8">
             {/* Strength & Weakness Analysis */}
-            <div className="bg-gradient-to-br from-slate-50 to-white rounded-xl shadow-md border border-slate-200 p-8">
-                <h2 className="text-xl font-bold text-slate-800 mb-6">All Brands Strength & Weakness Analysis</h2>
+            <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+                <h2 className="text-lg font-semibold text-foreground mb-6 tracking-tight">SWOT Analysis</h2>
 
                 <div className="grid md:grid-cols-2 gap-8">
                     {/* Main Strengths */}
-                    <div className="border-l-4 border-green-500 pl-6">
-                        <h3 className="text-lg font-bold text-green-700 mb-4">Main Strengths</h3>
-                        <div className="space-y-3">
+                    <div className="space-y-4">
+                        <div className="flex items-center gap-2 mb-2">
+                            <div className="w-1.5 h-6 bg-primary rounded-full" />
+                            <h3 className="text-sm font-medium text-foreground">Key Strengths</h3>
+                        </div>
+                        <div className="space-y-2">
                             {data.topStrengths.length > 0 ? (
                                 data.topStrengths.map((dim, idx) => (
-                                    <div key={idx} className="flex items-start gap-2">
-                                        <span className="text-green-600 font-bold text-lg">✅</span>
-                                        <div className="flex-1">
-                                            <div className="font-semibold text-slate-800">
-                                                {dim.dimension}
-                                                <span className="ml-2 text-green-600 font-bold">
-                                                    +{dim.netSentiment.toFixed(1)}% net
-                                                </span>
+                                    <div key={idx} className="flex flex-col p-3 rounded-lg bg-secondary border border-border">
+                                        <div className="flex justify-between items-start mb-1">
+                                            <span className="font-medium text-secondary-foreground text-sm">{dim.dimension}</span>
+                                            <span className="text-xs font-bold text-secondary-foreground px-1.5 py-0.5 bg-background/50 rounded">
+                                                +{dim.netSentiment.toFixed(0)}%
+                                            </span>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <div className="flex-1 h-1.5 bg-background/50 rounded-full overflow-hidden">
+                                                <div
+                                                    className="h-full bg-primary rounded-full"
+                                                    style={{ width: `${dim.positivePercent}%` }}
+                                                />
                                             </div>
-                                            <div className="text-sm text-slate-600">
-                                                {dim.positivePercent.toFixed(0)}% positive
-                                            </div>
+                                            <span className="text-xs text-muted-foreground w-8 text-right">{dim.positivePercent.toFixed(0)}%</span>
                                         </div>
                                     </div>
                                 ))
                             ) : (
-                                <p className="text-slate-500 italic">No significant strengths identified</p>
+                                <p className="text-muted-foreground text-sm italic">No appreciable strengths found.</p>
                             )}
                         </div>
                     </div>
 
                     {/* Main Weaknesses */}
-                    <div className="border-l-4 border-red-500 pl-6">
-                        <h3 className="text-lg font-bold text-red-700 mb-4">Main Weaknesses</h3>
-                        <div className="space-y-3">
+                    <div className="space-y-4">
+                        <div className="flex items-center gap-2 mb-2">
+                            <div className="w-1.5 h-6 bg-destructive rounded-full" />
+                            <h3 className="text-sm font-medium text-foreground">Critical Weaknesses</h3>
+                        </div>
+                        <div className="space-y-2">
                             {data.topWeaknesses.length > 0 ? (
                                 data.topWeaknesses.map((dim, idx) => (
-                                    <div key={idx} className="flex items-start gap-2">
-                                        <span className="text-red-600 font-bold text-lg">🔴</span>
-                                        <div className="flex-1">
-                                            <div className="font-semibold text-slate-800">
-                                                {dim.dimension}
-                                                <span className="ml-2 text-red-600 font-bold">
-                                                    {dim.netSentiment.toFixed(1)}% net
-                                                </span>
+                                    <div key={idx} className="flex flex-col p-3 rounded-lg bg-destructive/5 border border-destructive/20">
+                                        <div className="flex justify-between items-start mb-1">
+                                            <span className="font-medium text-foreground text-sm">{dim.dimension}</span>
+                                            <span className="text-xs font-bold text-destructive px-1.5 py-0.5 bg-background rounded border border-destructive/20">
+                                                {dim.netSentiment.toFixed(0)}%
+                                            </span>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <div className="flex-1 h-1.5 bg-destructive/10 rounded-full overflow-hidden">
+                                                <div
+                                                    className="h-full bg-destructive rounded-full"
+                                                    style={{ width: `${dim.negativePercent}%` }}
+                                                />
                                             </div>
-                                            <div className="text-sm text-slate-600">
-                                                {dim.negativePercent.toFixed(0)}% negative, {dim.total} mentions
-                                            </div>
+                                            <span className="text-xs text-destructive w-8 text-right">{dim.negativePercent.toFixed(0)}%</span>
                                         </div>
                                     </div>
                                 ))
                             ) : (
-                                <p className="text-slate-500 italic">No significant weaknesses identified</p>
+                                <p className="text-muted-foreground text-sm italic">No significant weaknesses found.</p>
                             )}
                         </div>
                     </div>
@@ -71,49 +83,45 @@ export function OperationalDashboard({ data }: OperationalDashboardProps) {
             </div>
 
             {/* Dimension Analysis Table */}
-            <div className="bg-white rounded-xl shadow-md border border-slate-200 p-6">
-                <h2 className="text-xl font-bold text-slate-800 mb-6">Dimension Analysis</h2>
+            <div className="bg-card rounded-2xl border border-border shadow-sm overflow-hidden">
+                <div className="p-6 border-b border-border">
+                    <h2 className="text-lg font-semibold text-foreground tracking-tight">Full Dimension Analysis</h2>
+                </div>
 
                 <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
+                    <table className="w-full text-sm text-left">
                         <thead>
-                            <tr className="border-b-2 border-slate-300 bg-slate-50">
-                                <th className="text-left py-3 px-4 font-bold text-slate-700">RANK</th>
-                                <th className="text-left py-3 px-4 font-bold text-slate-700">DIMENSION</th>
-                                <th className="text-center py-3 px-4 font-bold text-slate-700">TOTAL</th>
-                                <th className="text-center py-3 px-4 font-bold text-slate-700">POS</th>
-                                <th className="text-center py-3 px-4 font-bold text-slate-700">NEG</th>
-                                <th className="text-center py-3 px-4 font-bold text-slate-700">NEU</th>
-                                <th className="text-center py-3 px-4 font-bold text-slate-700">POS%</th>
-                                <th className="text-center py-3 px-4 font-bold text-slate-700">NEG%</th>
-                                <th className="text-center py-3 px-4 font-bold text-slate-700">NET</th>
-                                <th className="text-center py-3 px-4 font-bold text-slate-700">IMPACT</th>
+                            <tr className="bg-muted/50 border-b border-border">
+                                <th className="py-3 px-6 font-medium text-muted-foreground text-xs uppercase tracking-wider">Rank</th>
+                                <th className="py-3 px-6 font-medium text-muted-foreground text-xs uppercase tracking-wider">Dimension</th>
+                                <th className="py-3 px-6 font-medium text-muted-foreground text-xs uppercase tracking-wider text-right">Vol</th>
+                                <th className="py-3 px-6 font-medium text-muted-foreground text-xs uppercase tracking-wider text-right">Pos %</th>
+                                <th className="py-3 px-6 font-medium text-muted-foreground text-xs uppercase tracking-wider text-right">Neg %</th>
+                                <th className="py-3 px-6 font-medium text-muted-foreground text-xs uppercase tracking-wider text-right">Net</th>
+                                <th className="py-3 px-6 font-medium text-muted-foreground text-xs uppercase tracking-wider text-right">Impact</th>
                             </tr>
                         </thead>
-                        <tbody>
+                        <tbody className="divide-y divide-border">
                             {data.dimensionStats.map((dim, idx) => (
                                 <tr
                                     key={idx}
-                                    className={`border-b border-slate-100 hover:bg-slate-50 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'
-                                        }`}
+                                    className="hover:bg-muted/50 transition-colors"
                                 >
-                                    <td className="py-3 px-4 text-center font-bold text-slate-500">{idx + 1}</td>
-                                    <td className="py-3 px-4 font-semibold text-slate-800">{dim.dimension}</td>
-                                    <td className="py-3 px-4 text-center text-slate-600">{dim.total}</td>
-                                    <td className="py-3 px-4 text-center text-green-600 font-semibold">{dim.positive}</td>
-                                    <td className="py-3 px-4 text-center text-red-600 font-semibold">{dim.negative}</td>
-                                    <td className="py-3 px-4 text-center text-slate-500">{dim.neutral}</td>
-                                    <td className="py-3 px-4 text-center text-green-600 font-semibold">
-                                        {dim.positivePercent.toFixed(1)}%
+                                    <td className="py-3 px-6 text-muted-foreground font-mono text-xs">{idx + 1}</td>
+                                    <td className="py-3 px-6 font-medium text-foreground">{dim.dimension}</td>
+                                    <td className="py-3 px-6 text-muted-foreground text-right tabular-nums">{dim.total}</td>
+                                    <td className="py-3 px-6 text-muted-foreground text-right tabular-nums">{dim.positivePercent.toFixed(0)}%</td>
+                                    <td className="py-3 px-6 text-muted-foreground text-right tabular-nums">{dim.negativePercent.toFixed(0)}%</td>
+
+                                    <td className="py-3 px-6 text-right tabular-nums">
+                                        <span className={`inline-block px-2 py-0.5 rounded text-xs font-semibold ${dim.netSentiment >= 0
+                                            ? 'bg-secondary text-secondary-foreground'
+                                            : 'bg-destructive/10 text-destructive'
+                                            }`}>
+                                            {dim.netSentiment > 0 ? '+' : ''}{dim.netSentiment.toFixed(0)}%
+                                        </span>
                                     </td>
-                                    <td className="py-3 px-4 text-center text-red-600 font-semibold">
-                                        {dim.negativePercent.toFixed(1)}%
-                                    </td>
-                                    <td className={`py-3 px-4 text-center font-bold ${dim.netSentiment >= 0 ? 'text-green-600' : 'text-red-600'
-                                        }`}>
-                                        {dim.netSentiment > 0 ? '+' : ''}{dim.netSentiment.toFixed(1)}%
-                                    </td>
-                                    <td className="py-3 px-4 text-center font-bold text-slate-700">
+                                    <td className="py-3 px-6 text-right tabular-nums text-muted-foreground text-xs">
                                         {dim.impact.toFixed(2)}
                                     </td>
                                 </tr>
@@ -123,9 +131,8 @@ export function OperationalDashboard({ data }: OperationalDashboardProps) {
                 </div>
 
                 {data.dimensionStats.length === 0 && (
-                    <div className="text-center py-12 text-slate-500">
-                        <p className="text-lg">No dimension data available</p>
-                        <p className="text-sm mt-2">Topics may not have been extracted from the reviews</p>
+                    <div className="text-center py-12 text-muted-foreground">
+                        <p className="text-sm">No analysis data available</p>
                     </div>
                 )}
             </div>

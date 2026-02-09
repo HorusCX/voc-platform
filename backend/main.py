@@ -198,12 +198,13 @@ def task_discover_locations(job_id: str, company_name: str, website: str):
 
 def task_final_analysis(job_id: str, file_key: str, dimensions: List[str]):
     logger.info(f"🧠 Starting Background Task: Final Analysis for {job_id} (File: {file_key})")
-    # Can't easily update status for this one as usage pattern relies on analysis_results/ maybe?
-    # The worker logic didn't seem to update "processing_status" for this, but notified completion via logs/result?
-    # Actually worker logic for 'analysis' just ran analyze_reviews.
     
+    # Update status to running immediately
+    update_job_status(job_id, "running", "Initializing analysis...", task_type="analysis")
+
     if not OPENAI_API_KEY:
         logger.error("❌ OpenAI API Key missing")
+        update_job_status(job_id, "error", "Server configuration error: OpenAI Key missing", task_type="analysis")
         return
 
     try:
@@ -211,10 +212,13 @@ def task_final_analysis(job_id: str, file_key: str, dimensions: List[str]):
         result = analyze_reviews(file_key, dimensions, OPENAI_API_KEY, job_id=job_id)
         if result.get("error"):
             logger.error(f"❌ Analysis failed: {result.get('error')}")
+            update_job_status(job_id, "error", result.get('error'), task_type="analysis")
         else:
             logger.info(f"✅ Analysis completed. Download URL: {result.get('download_url')}")
+            # analyze_reviews already updates status to completed
     except Exception as e:
         logger.error(f"❌ Analysis crashed: {e}")
+        update_job_status(job_id, "error", f"Analysis crashed: {str(e)}", task_type="analysis")
 
 # --- Pydantic Models ---
 class WebsiteRequest(BaseModel):
@@ -509,8 +513,8 @@ async def api_scrapped_data2(request: dict):
             "message": "Dimensions generated",
             "body": { # replicating n8n structure slightly for frontend compatibility
                 "dimensions": dimensions,
-                "s3_bucket": "local", 
-                "s3_key": file_path 
+                "s3_bucket": S3_BUCKET_NAME if s3_key else "local", 
+                "s3_key": s3_key if s3_key else file_path 
             }
         }
     except Exception as e:

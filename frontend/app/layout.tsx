@@ -8,7 +8,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Calo VoC Dashboard",
+  title: "HorusCX VoC Dashboard",
   description: "Voice of Customer Analysis",
 };
 

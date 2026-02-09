@@ -370,9 +370,9 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
                         <button
                             onClick={handleProcessData}
                             disabled={submittingDims}
-                            className="inline-flex items-center justify-center gap-2 bg-calo-primary hover:bg-calo-dark text-white px-6 py-3 rounded-full font-bold shadow-md transition-colors disabled:opacity-70"
+                            className="inline-flex items-center justify-center gap-2 bg-primary hover:bg-primary/90 text-primary-foreground font-semibold py-4 px-6 rounded-full shadow-lg hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed transform hover:-translate-y-0.5"
                         >
-                            {submittingDims ? <Loader2 className="animate-spin" /> : "Generate Dimensions ⚡"}
+                            {submittingDims ? <Loader2 className="animate-spin" /> : "Analyze Reviews & Generate Insights ⚡"}
                         </button>
                     )}
                 </div>
@@ -418,7 +418,7 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
                         <button
                             onClick={handleSubmitDimensions}
                             disabled={submittingDims}
-                            className="w-full bg-calo-primary hover:bg-calo-dark text-white font-bold py-3 rounded-full flex items-center justify-center gap-2 transition-colors shadow-sm"
+                            className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold py-4 px-6 rounded-full flex items-center justify-center gap-2 shadow-lg hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed transform hover:-translate-y-0.5"
                         >
                             {submittingDims ? <Loader2 className="animate-spin" /> : <><Send className="h-4 w-4" /> Start Analysis & Generate Dashboard 🚀</>}
                         </button>

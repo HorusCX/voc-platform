@@ -1,7 +1,8 @@
 "use client";
 
-import { DashboardData, DimensionStats } from "@/lib/dashboard-utils";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import React from 'react';
+import { DashboardData } from "@/lib/dashboard-utils";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 interface ExecutiveDashboardProps {
     data: DashboardData;
@@ -10,12 +11,12 @@ interface ExecutiveDashboardProps {
 export function ExecutiveDashboard({ data }: ExecutiveDashboardProps) {
     return (
         <div className="space-y-8">
-            {/* Process Flow */}
+            {/* Process Flow - Simplified */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-                <ProcessStep icon="📊" label={`${data.totalReviews} reviews analyzed (All)`} />
-                <ProcessStep icon="🤖" label="AI-powered Sentiment & Topics" />
-                <ProcessStep icon="💡" label="Structured Insights" />
-                <ProcessStep icon="✅" label="Actionable Recommendations" />
+                <ProcessStep label={`${data.totalReviews} Reviews`} active />
+                <ProcessStep label="AI Analysis" active />
+                <ProcessStep label="Insights" active />
+                <ProcessStep label="Recommendations" active />
             </div>
 
             {/* KPI Cards */}
@@ -23,91 +24,116 @@ export function ExecutiveDashboard({ data }: ExecutiveDashboardProps) {
                 <KPICard
                     title="Total Reviews"
                     value={data.totalReviews.toString()}
-                    className="bg-white"
                 />
                 <KPICard
                     title="Avg Rating"
                     value={data.avgRating.toFixed(2)}
                     subtitle={<StarRating rating={data.avgRating} />}
-                    className="bg-white"
                 />
                 <KPICard
                     title="Negative %"
                     value={`${data.negativePercent.toFixed(1)}%`}
-                    className="bg-red-50 text-red-700 border-red-200"
-                    large
+                    trend="negative"
                 />
                 <KPICard
                     title="Positive %"
                     value={`${data.positivePercent.toFixed(1)}%`}
-                    className="bg-green-50 text-green-700 border-green-200"
-                    large
+                    trend="positive"
                 />
                 <KPICard
                     title="Net Sentiment"
                     value={`${data.netSentiment > 0 ? '+' : ''}${data.netSentiment.toFixed(1)}%`}
-                    className={`${data.netSentiment >= 0 ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}
-                    large
+                    trend={data.netSentiment >= 0 ? "positive" : "negative"}
+                    highlight
                 />
             </div>
 
             {/* Sentiment Trend Chart */}
-            <div className="bg-white rounded-xl shadow-md border border-slate-200 p-6">
-                <h3 className="text-lg font-bold text-slate-800 mb-4">Sentiment Trend (Last 90 Days)</h3>
+            <div className="bg-card rounded-2xl border border-border p-6 shadow-sm">
+                <h3 className="text-sm font-semibold text-foreground mb-6 tracking-tight">Sentiment Trend (90 Days)</h3>
                 <ResponsiveContainer width="100%" height={300}>
                     <LineChart data={data.sentimentTrend}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                        <XAxis dataKey="week" stroke="#64748b" style={{ fontSize: '12px' }} />
-                        <YAxis stroke="#64748b" style={{ fontSize: '12px' }} />
-                        <Tooltip
-                            contentStyle={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px' }}
+                        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                        <XAxis
+                            dataKey="week"
+                            stroke="var(--muted-foreground)"
+                            style={{ fontSize: '11px', fontFamily: 'var(--font-inter)' }}
+                            tickLine={false}
+                            axisLine={false}
+                            dy={10}
                         />
-                        <Legend />
+                        <YAxis
+                            stroke="var(--muted-foreground)"
+                            style={{ fontSize: '11px', fontFamily: 'var(--font-inter)' }}
+                            tickLine={false}
+                            axisLine={false}
+                            dx={-10}
+                        />
+                        <Tooltip
+                            contentStyle={{
+                                backgroundColor: 'var(--popover)',
+                                border: '1px solid var(--border)',
+                                borderRadius: '8px',
+                                boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
+                                fontSize: '12px',
+                                color: 'var(--popover-foreground)'
+                            }}
+                        />
                         <Line
                             type="monotone"
                             dataKey="positive"
-                            stroke="#10b981"
+                            stroke="var(--primary)"
                             strokeWidth={2}
-                            name="Positive"
-                            dot={{ fill: '#10b981', r: 4 }}
+                            dot={false}
+                            activeDot={{ r: 4, strokeWidth: 0 }}
                         />
                         <Line
                             type="monotone"
                             dataKey="negative"
-                            stroke="#ef4444"
+                            stroke="var(--muted-foreground)"
                             strokeWidth={2}
-                            name="Negative"
-                            dot={{ fill: '#ef4444', r: 4 }}
+                            dot={false}
+                            activeDot={{ r: 4, strokeWidth: 0 }}
                         />
                     </LineChart>
                 </ResponsiveContainer>
+                <div className="flex items-center justify-center gap-6 mt-4 text-xs text-muted-foreground font-medium">
+                    <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-primary" />
+                        Positive
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-muted-foreground" />
+                        Negative
+                    </div>
+                </div>
             </div>
 
             {/* Brand Comparison Overview */}
             {data.brandStats.length > 1 && (
-                <div className="bg-white rounded-xl shadow-md border border-slate-200 p-6">
-                    <h3 className="text-lg font-bold text-slate-800 mb-4">Brand Comparison Overview</h3>
+                <div className="bg-card rounded-2xl border border-border p-6 shadow-sm overflow-hidden">
+                    <h3 className="text-sm font-semibold text-foreground mb-6 tracking-tight">Brand Comparison</h3>
                     <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
+                        <table className="w-full text-sm text-left">
                             <thead>
-                                <tr className="border-b border-slate-200">
-                                    <th className="text-left py-3 px-4 font-bold text-slate-700">BRAND</th>
-                                    <th className="text-center py-3 px-4 font-bold text-slate-700">REVIEWS</th>
-                                    <th className="text-center py-3 px-4 font-bold text-slate-700">AVG RATING</th>
-                                    <th className="text-center py-3 px-4 font-bold text-slate-700">NEG %</th>
-                                    <th className="text-center py-3 px-4 font-bold text-slate-700">POS %</th>
-                                    <th className="text-center py-3 px-4 font-bold text-slate-700">NET SENT %</th>
+                                <tr className="border-b border-border text-xs text-muted-foreground font-medium uppercase tracking-wider">
+                                    <th className="py-3 px-4 pl-0 font-medium">Brand</th>
+                                    <th className="py-3 px-4 font-medium text-right">Reviews</th>
+                                    <th className="py-3 px-4 font-medium text-right">Rating</th>
+                                    <th className="py-3 px-4 font-medium text-right">Neg %</th>
+                                    <th className="py-3 px-4 font-medium text-right">Pos %</th>
+                                    <th className="py-3 px-4 pr-0 font-medium text-right">Net</th>
                                 </tr>
                             </thead>
-                            <tbody>
+                            <tbody className="divide-y divide-border">
                                 {data.brandStats.map((brand, idx) => (
-                                    <tr key={idx} className={`border-b border-slate-100 ${idx % 2 === 0 ? 'bg-slate-50' : 'bg-white'}`}>
-                                        <td className="py-3 px-4 font-semibold text-slate-800">{brand.brand}</td>
-                                        <td className="py-3 px-4 text-center text-slate-600">{brand.reviews}</td>
-                                        <td className="py-3 px-4 text-center text-slate-600">{brand.avgRating.toFixed(2)}</td>
-                                        <td className="py-3 px-4 text-center text-red-600 font-semibold">{brand.negativePercent.toFixed(1)}%</td>
-                                        <td className="py-3 px-4 text-center text-green-600 font-semibold">{brand.positivePercent.toFixed(1)}%</td>
-                                        <td className={`py-3 px-4 text-center font-bold ${brand.netSentiment >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                    <tr key={idx} className="group hover:bg-muted/50 transition-colors">
+                                        <td className="py-3 px-4 pl-0 font-medium text-card-foreground">{brand.brand}</td>
+                                        <td className="py-3 px-4 text-right text-muted-foreground tabular-nums">{brand.reviews}</td>
+                                        <td className="py-3 px-4 text-right text-muted-foreground tabular-nums">{brand.avgRating.toFixed(2)}</td>
+                                        <td className="py-3 px-4 text-right text-destructive/80 tabular-nums">{brand.negativePercent.toFixed(1)}%</td>
+                                        <td className="py-3 px-4 text-right text-muted-foreground tabular-nums">{brand.positivePercent.toFixed(1)}%</td>
+                                        <td className={`py-3 px-4 pr-0 text-right font-medium tabular-nums ${brand.netSentiment >= 0 ? 'text-foreground' : 'text-destructive'}`}>
                                             {brand.netSentiment > 0 ? '+' : ''}{brand.netSentiment.toFixed(1)}%
                                         </td>
                                     </tr>
@@ -124,11 +150,12 @@ export function ExecutiveDashboard({ data }: ExecutiveDashboardProps) {
     );
 }
 
-function ProcessStep({ icon, label }: { icon: string; label: string }) {
+function ProcessStep({ label, active = false }: { label: string; active?: boolean }) {
     return (
-        <div className="bg-white rounded-lg border border-slate-200 p-4 text-center shadow-sm">
-            <div className="text-2xl mb-2">{icon}</div>
-            <div className="text-xs text-slate-600 font-medium">{label}</div>
+        <div className={`rounded-xl border p-4 text-center transition-all ${active ? 'bg-card border-border shadow-sm' : 'bg-muted border-transparent opacity-50'
+            }`}>
+            {/* Icon removed */}
+            <div className="text-xs text-muted-foreground font-medium">{label}</div>
         </div>
     );
 }
@@ -137,15 +164,25 @@ interface KPICardProps {
     title: string;
     value: string;
     subtitle?: React.ReactNode;
-    className?: string;
-    large?: boolean;
+    trend?: 'positive' | 'negative' | 'neutral';
+    highlight?: boolean;
 }
 
-function KPICard({ title, value, subtitle, className = "bg-white", large = false }: KPICardProps) {
+function KPICard({ title, value, subtitle, trend, highlight = false }: KPICardProps) {
     return (
-        <div className={`rounded-xl shadow-md border p-6 ${className}`}>
-            <div className="text-sm font-bold text-slate-600 mb-2">{title}</div>
-            <div className={`font-bold ${large ? 'text-4xl' : 'text-3xl'} mb-1`}>{value}</div>
+        <div className={`rounded-2xl border p-5 flex flex-col justify-between h-full transition-all ${highlight
+            ? 'bg-primary border-primary text-primary-foreground shadow-lg shadow-border/50'
+            : 'bg-card border-border shadow-sm'
+            }`}>
+            <div>
+                <div className={`text-xs font-medium mb-1 ${highlight ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>{title}</div>
+                <div className={`font-semibold text-2xl tracking-tight ${trend === 'positive' && !highlight ? 'text-foreground' :
+                    trend === 'negative' && !highlight ? 'text-destructive' :
+                        highlight ? 'text-primary-foreground' : 'text-foreground'
+                    }`}>
+                    {value}
+                </div>
+            </div>
             {subtitle && <div className="mt-2">{subtitle}</div>}
         </div>
     );
@@ -156,14 +193,14 @@ function StarRating({ rating }: { rating: number }) {
     const hasHalfStar = rating % 1 >= 0.5;
 
     return (
-        <div className="flex items-center gap-1 text-yellow-500">
+        <div className="flex items-center gap-0.5 text-yellow-400/90 text-xs">
             {[...Array(5)].map((_, i) => {
                 if (i < fullStars) {
-                    return <span key={i}>⭐</span>;
+                    return <span key={i}>★</span>;
                 } else if (i === fullStars && hasHalfStar) {
-                    return <span key={i}>⭐</span>;
+                    return <span key={i} className="opacity-50">★</span>;
                 } else {
-                    return <span key={i} className="opacity-30">⭐</span>;
+                    return <span key={i} className="text-muted">★</span>;
                 }
             })}
         </div>
@@ -174,51 +211,63 @@ function DimensionPerformanceMatrix({ data }: { data: DashboardData }) {
     const [viewMode, setViewMode] = React.useState<'positive' | 'net'>('net');
 
     return (
-        <div className="bg-white rounded-xl shadow-md border border-slate-200 p-6">
-            <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-bold text-slate-800">Dimension Performance by Brand</h3>
-                <div className="flex gap-2">
+        <div className="bg-card rounded-2xl border border-border p-6 shadow-sm">
+            <div className="flex items-center justify-between mb-6">
+                <h3 className="text-sm font-semibold text-foreground tracking-tight">Dimension Performance</h3>
+                <div className="flex bg-muted p-1 rounded-lg">
                     <button
                         onClick={() => setViewMode('positive')}
-                        className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${viewMode === 'positive'
-                                ? 'bg-teal-500 text-white'
-                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                        className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${viewMode === 'positive'
+                            ? 'bg-card text-foreground shadow-sm'
+                            : 'text-muted-foreground hover:text-foreground'
                             }`}
                     >
-                        % Positive
+                        Positive %
                     </button>
                     <button
                         onClick={() => setViewMode('net')}
-                        className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${viewMode === 'net'
-                                ? 'bg-teal-500 text-white'
-                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                        className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${viewMode === 'net'
+                            ? 'bg-card text-foreground shadow-sm'
+                            : 'text-muted-foreground hover:text-foreground'
                             }`}
                     >
-                        Net Sentiment
+                        Net Score
                     </button>
                 </div>
             </div>
 
             <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="w-full text-sm text-left">
                     <thead>
-                        <tr className="border-b border-slate-200">
-                            <th className="text-left py-3 px-4 font-bold text-slate-700">DIMENSION</th>
+                        <tr className="border-b border-border text-xs text-muted-foreground font-medium uppercase tracking-wider">
+                            <th className="py-2 px-4 pl-0 font-medium">Dimension</th>
                             {data.brandStats.map((brand, idx) => (
-                                <th key={idx} className="text-center py-3 px-4 font-bold text-slate-700">{brand.brand}</th>
+                                <th key={idx} className="py-2 px-4 font-medium text-center">{brand.brand}</th>
                             ))}
                         </tr>
                     </thead>
-                    <tbody>
+                    <tbody className="divide-y divide-border">
                         {data.dimensionStats.slice(0, 15).map((dim, idx) => (
-                            <tr key={idx} className={`border-b border-slate-100 ${idx % 2 === 0 ? 'bg-slate-50' : 'bg-white'}`}>
-                                <td className="py-3 px-4 font-semibold text-slate-800">{dim.dimension}</td>
+                            <tr key={idx} className="group hover:bg-muted/50">
+                                <td className="py-3 px-4 pl-0 font-medium text-foreground">{dim.dimension}</td>
                                 {data.brandStats.map((brand, brandIdx) => {
                                     const value = viewMode === 'positive' ? dim.positivePercent : dim.netSentiment;
-                                    const color = value >= 0 ? 'text-green-600' : 'text-red-600';
+                                    // Logic usually requires getting specific brand value for dimension,
+                                    // but assuming DashboardData structure flattens this effectively or we use overall for now.
+                                    // *Correction*: detailed brand breakdown might need richer data structure,
+                                    // but keeping logic same as original file for now, just styling.
+
+                                    const isPositive = value >= 0;
+                                    // const opacity = Math.min(Math.abs(value) / 100 + 0.1, 1); // This line was removed in the instruction
+
                                     return (
-                                        <td key={brandIdx} className={`py-3 px-4 text-center font-semibold ${color}`}>
-                                            {value > 0 ? '+' : ''}{value.toFixed(1)}%
+                                        <td key={brandIdx} className="py-3 px-4 text-center tabular-nums">
+                                            <span className={`px-2 py-1 rounded text-xs font-medium ${isPositive
+                                                ? 'bg-secondary text-secondary-foreground'
+                                                : 'bg-destructive/10 text-destructive'
+                                                }`}>
+                                                {value > 0 ? '+' : ''}{value.toFixed(0)}%
+                                            </span>
                                         </td>
                                     );
                                 })}
@@ -230,6 +279,3 @@ function DimensionPerformanceMatrix({ data }: { data: DashboardData }) {
         </div>
     );
 }
-
-// Add React import for useState
-import React from 'react';

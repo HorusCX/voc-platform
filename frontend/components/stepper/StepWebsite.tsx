@@ -81,11 +81,11 @@ export function StepWebsite({ onComplete }: StepWebsiteProps) {
         <Card title="Step 1: Company Website" className="w-full max-w-2xl mx-auto">
             <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
-                    <label htmlFor="website" className="block text-sm font-medium text-slate-700 mb-1">
+                    <label htmlFor="website" className="block text-sm font-medium text-foreground mb-1">
                         Website URL
                     </label>
                     <div className="relative">
-                        <Globe className="absolute left-3 top-3 h-5 w-5 text-slate-400" />
+                        <Globe className="absolute left-3 top-3 h-5 w-5 text-muted-foreground" />
                         <input
                             id="website"
                             type="url"
@@ -93,7 +93,7 @@ export function StepWebsite({ onComplete }: StepWebsiteProps) {
                             value={url}
                             onChange={(e) => setUrl(e.target.value)}
                             disabled={loading}
-                            className="pl-10 w-full rounded-md border border-calo-border py-2 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-calo-primary transition-colors disabled:opacity-50 text-calo-text-main"
+                            className="pl-10 w-full rounded-md border border-input py-2 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring transition-colors disabled:opacity-50 text-foreground bg-background placeholder:text-muted-foreground"
                         />
                     </div>
                     {error && <p className="mt-2 text-sm text-red-500">{error}</p>}
@@ -102,7 +102,7 @@ export function StepWebsite({ onComplete }: StepWebsiteProps) {
                 <button
                     type="submit"
                     disabled={loading || !url}
-                    className="w-full flex items-center justify-center gap-2 bg-calo-primary hover:bg-calo-dark text-white font-bold py-3 px-4 rounded-full transition-colors disabled:opacity-70 disabled:cursor-not-allowed shadow-sm"
+                    className="w-full flex items-center justify-center gap-2 bg-primary hover:bg-primary/90 text-primary-foreground font-semibold py-4 px-6 rounded-full shadow-lg hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed transform hover:-translate-y-0.5"
                 >
                     {loading ? (
                         <>

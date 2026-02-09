@@ -265,9 +265,9 @@ export function StepAppIds({ initialData, onComplete }: StepAppIdsProps) {
     return (
         <Card title="Step 3: Verify App IDs & Links" className="w-full max-w-3xl mx-auto">
             <div className="space-y-6">
-                <div className="bg-calo-mint p-3 rounded-md flex flex-col gap-2 text-sm text-green-800 border border-calo-green-primary/20">
+                <div className="bg-muted/50 p-3 rounded-md flex flex-col gap-2 text-sm text-muted-foreground border border-border">
                     <div className="flex gap-2">
-                        <AlertCircle className="h-5 w-5 shrink-0 text-calo-green-primary" />
+                        <AlertCircle className="h-5 w-5 shrink-0 text-primary" />
                         <p>
                             Verify App IDs and Google Maps locations.
                             Use <strong>Auto-Discover</strong> to find all maps branches for deeper insights.
@@ -276,7 +276,7 @@ export function StepAppIds({ initialData, onComplete }: StepAppIdsProps) {
 
                     {/* Global Progress Indicator */}
                     {discoveringIndices.size > 0 && (
-                        <div className="mt-2 pl-7 flex items-center gap-2 text-calo-primary font-medium animate-pulse">
+                        <div className="mt-2 pl-7 flex items-center gap-2 text-primary font-medium animate-pulse">
                             <Loader2 className="h-4 w-4 animate-spin" />
                             <span>Discovering locations for {discoveringIndices.size} brand{discoveringIndices.size > 1 ? 's' : ''}... please wait.</span>
                         </div>
@@ -285,53 +285,53 @@ export function StepAppIds({ initialData, onComplete }: StepAppIdsProps) {
 
                 <div className="space-y-4">
                     {items.map((item, index) => (
-                        <div key={index} className="p-4 bg-white rounded-lg border border-slate-200 shadow-sm transition-all hover:shadow-md">
-                            <h4 className="font-semibold text-lg text-calo-text-main mb-3 flex items-center gap-2">
+                        <div key={index} className="p-4 bg-card rounded-lg border border-border shadow-sm transition-all hover:shadow-md">
+                            <h4 className="font-semibold text-lg text-foreground mb-3 flex items-center gap-2">
                                 {item.company_name}
-                                {item.is_main && <span className="text-xs bg-calo-primary text-white px-2 py-0.5 rounded-full">Main</span>}
+                                {item.is_main && <span className="text-xs bg-primary text-primary-foreground px-2 py-0.5 rounded-full">Main</span>}
                             </h4>
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                                 <div>
-                                    <label className="text-xs font-semibold text-calo-text-secondary block mb-1">Android App ID</label>
+                                    <label className="text-xs font-semibold text-muted-foreground block mb-1">Android App ID</label>
                                     <input
                                         type="text"
                                         value={item.android_id || ""}
                                         onChange={(e) => updateItem(index, "android_id", e.target.value)}
                                         placeholder="com.example.app"
-                                        className="w-full rounded border border-calo-border px-3 py-2 text-sm font-mono text-calo-text-main focus:ring-1 focus:ring-calo-primary"
+                                        className="w-full rounded border border-input px-3 py-2 text-sm font-mono text-foreground bg-background focus:ring-1 focus:ring-ring"
                                     />
                                 </div>
                                 <div>
-                                    <label className="text-xs font-semibold text-calo-text-secondary block mb-1">Apple App ID</label>
+                                    <label className="text-xs font-semibold text-muted-foreground block mb-1">Apple App ID</label>
                                     <input
                                         type="text"
                                         value={item.apple_id || ""}
                                         onChange={(e) => updateItem(index, "apple_id", e.target.value)}
                                         placeholder="123456789"
-                                        className="w-full rounded border border-calo-border px-3 py-2 text-sm font-mono text-calo-text-main focus:ring-1 focus:ring-calo-primary"
+                                        className="w-full rounded border border-input px-3 py-2 text-sm font-mono text-foreground bg-background focus:ring-1 focus:ring-ring"
                                     />
                                 </div>
                             </div>
 
                             {/* Google Maps Section */}
-                            <div className="border-t border-slate-100 pt-3">
+                            <div className="border-t border-border pt-3">
                                 <div className="flex items-center justify-between mb-2">
-                                    <label className="text-xs font-semibold text-calo-text-secondary flex items-center gap-1">
+                                    <label className="text-xs font-semibold text-muted-foreground flex items-center gap-1">
                                         <MapPin className="w-3 h-3" /> Google Maps Locations
                                         {(item.google_maps_links || []).length > 0 && (
-                                            <span className="ml-1 text-calo-primary">({(item.google_maps_links || []).length})</span>
+                                            <span className="ml-1 text-primary">({(item.google_maps_links || []).length})</span>
                                         )}
                                     </label>
                                     {discoveringIndices.has(index) ? (
-                                        <span className="text-xs flex items-center gap-1 text-slate-400 font-medium">
+                                        <span className="text-xs flex items-center gap-1 text-muted-foreground font-medium">
                                             <Loader2 className="w-3 h-3 animate-spin" />
                                             {discoveryStatuses[index] || "Loading..."}
                                         </span>
                                     ) : (
                                         <button
                                             onClick={() => handleDiscoverMaps(index)}
-                                            className="text-xs flex items-center gap-1 text-calo-primary hover:text-calo-dark font-medium"
+                                            className="text-xs flex items-center gap-1 text-primary hover:text-primary/80 font-medium"
                                         >
                                             <Search className="w-3 h-3" />
                                             Auto-Discover Locations
@@ -345,31 +345,31 @@ export function StepAppIds({ initialData, onComplete }: StepAppIdsProps) {
                                         const info = getLinkInfo(link);
                                         return (
                                             <div key={i} className="flex items-center gap-2 group">
-                                                <div className="flex-1 bg-slate-50 text-xs px-2 py-1.5 rounded border border-slate-200 flex items-center justify-between min-w-0">
+                                                <div className="flex-1 bg-muted/30 text-xs px-2 py-1.5 rounded border border-border flex items-center justify-between min-w-0">
                                                     {/* Clickable name with URL */}
                                                     {info.url ? (
                                                         <a
                                                             href={info.url}
                                                             target="_blank"
                                                             rel="noopener noreferrer"
-                                                            className="text-calo-primary hover:text-calo-dark hover:underline truncate font-medium"
+                                                            className="text-primary hover:underline truncate font-medium"
                                                             title={info.url}
                                                         >
                                                             {info.name}
                                                         </a>
                                                     ) : (
-                                                        <span className="text-slate-700 truncate">{info.name}</span>
+                                                        <span className="text-muted-foreground truncate">{info.name}</span>
                                                     )}
                                                     {/* Reviews count badge */}
                                                     {info.reviews_count && (
-                                                        <span className="ml-2 shrink-0 text-xs bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full font-medium border border-slate-200">
+                                                        <span className="ml-2 shrink-0 text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full font-medium border border-border">
                                                             {info.reviews_count} reviews
                                                         </span>
                                                     )}
                                                 </div>
                                                 <button
                                                     onClick={() => removeLink(index, link)}
-                                                    className="text-slate-400 hover:text-red-500 transition-colors px-2"
+                                                    className="text-muted-foreground hover:text-destructive transition-colors px-2"
                                                     title="Remove link"
                                                 >
                                                     <X className="w-4 h-4" />
@@ -385,7 +385,7 @@ export function StepAppIds({ initialData, onComplete }: StepAppIdsProps) {
                                             value={newLinkInputs[index] || ""}
                                             onChange={(e) => setNewLinkInputs(prev => ({ ...prev, [index]: e.target.value }))}
                                             placeholder="Paste Google Maps link..."
-                                            className="flex-1 rounded border border-calo-border px-2 py-1.5 text-xs text-calo-text-main focus:ring-1 focus:ring-calo-primary"
+                                            className="flex-1 rounded border border-input px-2 py-1.5 text-xs text-foreground bg-background focus:ring-1 focus:ring-ring"
                                             onKeyDown={(e) => {
                                                 if (e.key === 'Enter') {
                                                     e.preventDefault();
@@ -395,7 +395,7 @@ export function StepAppIds({ initialData, onComplete }: StepAppIdsProps) {
                                         />
                                         <button
                                             onClick={() => addLink(index)}
-                                            className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded border border-slate-200 transition-colors"
+                                            className="p-1.5 bg-muted hover:bg-muted/80 text-muted-foreground rounded border border-border transition-colors"
                                         >
                                             <Plus className="w-4 h-4" />
                                         </button>
@@ -411,7 +411,7 @@ export function StepAppIds({ initialData, onComplete }: StepAppIdsProps) {
                 <button
                     onClick={handleStartScraping}
                     disabled={loading}
-                    className="w-full flex items-center justify-center gap-2 bg-calo-primary hover:bg-calo-dark text-white font-bold py-4 px-6 rounded-full shadow-lg hover:shadow-xl transition-all disabled:opacity-70 disabled:cursor-not-allowed transform hover:-translate-y-0.5"
+                    className="w-full flex items-center justify-center gap-2 bg-primary hover:bg-primary/90 text-primary-foreground font-semibold py-4 px-6 rounded-full shadow-lg hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed transform hover:-translate-y-0.5"
                 >
                     {loading ? (
                         <>

@@ -14,6 +14,7 @@ CLUSTER_NAME="voc-cluster"
 REPO_NAME="voc-backend"
 ACCOUNT_ID="557395370110"
 IMAGE_URI="$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/$REPO_NAME:latest"
+DASHBOARD_URL="https://main.d27d8jikm93xrx.amplifyapp.com"
 
 # Colors
 GREEN='\033[0;32m'
@@ -69,13 +70,15 @@ ENV_JSON=$(jq -n \
   --arg gemini "$GEMINI_API_KEY" \
   --arg dataforseo_login "$DATAFORSEO_LOGIN" \
   --arg dataforseo_pass "$DATAFORSEO_PASSWORD" \
+  --arg dashboard_url "$DASHBOARD_URL" \
   '[
     {name: "S3_BUCKET_NAME", value: $s3},
     {name: "AWS_REGION", value: $region},
     {name: "OPENAI_API_KEY", value: $openai},
     {name: "GEMINI_API_KEY", value: $gemini},
     {name: "DATAFORSEO_LOGIN", value: $dataforseo_login},
-    {name: "DATAFORSEO_PASSWORD", value: $dataforseo_pass}
+    {name: "DATAFORSEO_PASSWORD", value: $dataforseo_pass},
+    {name: "DASHBOARD_URL", value: $dashboard_url}
   ]')
 
 # Register API Task Definition

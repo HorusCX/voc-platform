@@ -7,6 +7,7 @@ import { StepAppIds } from "./StepAppIds";
 import { SuccessView } from "../results/SuccessView";
 import { Company } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { Globe, Users, Smartphone, Check } from "lucide-react";
 
 export default function VocStepper() {
     const [step, setStep] = useState(1);
@@ -14,8 +15,6 @@ export default function VocStepper() {
         competitors?: Company[];
         jobId?: string;
     }>({});
-
-
 
     const handleStep1Complete = (companies: Company[]) => {
         setData((prev) => ({ ...prev, competitors: companies }));
@@ -41,44 +40,55 @@ export default function VocStepper() {
     return (
         <div className="w-full max-w-4xl mx-auto px-4 py-8 relative">
 
-            {/* Stepper Header (Only show for steps 1-3) */}
+            {/* Stepper Header */}
             {step < 4 && (
-                <div className="flex items-center justify-between mb-8 relative">
+                <div className="flex items-center justify-between mb-16 relative w-full max-w-2xl mx-auto">
                     {/* Progress Bar Background */}
-                    <div className="absolute left-0 top-1/2 -translate-y-1/2 w-full h-1 bg-slate-200 -z-10" />
+                    <div className="absolute left-0 top-1/2 -translate-y-1/2 w-full h-[1px] bg-border -z-10" />
                     {/* Active Progress */}
                     <div
-                        className="absolute left-0 top-1/2 -translate-y-1/2 h-1 bg-calo-primary -z-10 transition-all duration-500 ease-in-out"
+                        className="absolute left-0 top-1/2 -translate-y-1/2 h-[1px] bg-primary -z-10 transition-all duration-500 ease-in-out"
                         style={{ width: `${((step - 1) / 2) * 100}%` }}
                     />
 
-                    {[1, 2, 3].map((num) => (
-                        <div key={num} className="flex flex-col items-center gap-2 bg-calo-mint px-2">
-                            <div className={cn(
-                                "w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm border-2 transition-colors",
-                                step >= num
-                                    ? "bg-calo-primary border-calo-primary text-white"
-                                    : "bg-white border-calo-border text-calo-text-secondary"
-                            )}>
-                                {num}
+                    {[1, 2, 3].map((num) => {
+                        const isActive = step >= num;
+                        const isCurrent = step === num;
+
+                        return (
+                            <div key={num} className="flex flex-col items-center gap-3 bg-background px-2">
+                                <div className={cn(
+                                    "w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 ring-4 ring-background border",
+                                    isActive
+                                        ? "bg-primary border-primary text-primary-foreground shadow-sm"
+                                        : "bg-background border-input text-muted-foreground"
+                                )}>
+                                    {step > num ? (
+                                        <Check className="w-5 h-5" />
+                                    ) : (
+                                        <>
+                                            {num === 1 && <Globe className="w-5 h-5" />}
+                                            {num === 2 && <Users className="w-5 h-5" />}
+                                            {num === 3 && <Smartphone className="w-5 h-5" />}
+                                        </>
+                                    )}
+                                </div>
+                                <span className={cn(
+                                    "text-xs font-semibold uppercase tracking-wider absolute -bottom-8 whitespace-nowrap transition-colors duration-300",
+                                    isActive ? "text-foreground" : "text-muted-foreground"
+                                )}>
+                                    {num === 1 && "Website"}
+                                    {num === 2 && "Competitors"}
+                                    {num === 3 && "App IDs"}
+                                </span>
                             </div>
-                            <span className={cn(
-                                "text-xs font-medium uppercase tracking-wide",
-                                step >= num ? "text-calo-primary" : "text-calo-text-secondary"
-                            )}>
-                                {num === 1 && "Website"}
-                                {num === 2 && "Competitors"}
-                                {num === 3 && "App IDs"}
-                            </span>
-                        </div>
-                    ))}
+                        );
+                    })}
                 </div>
             )}
 
-
-
             {/* Step Content with Animation Wrapper */}
-            <div className="min-h-[400px]">
+            <div className="min-h-[400px] animate-in fade-in slide-in-from-bottom-4 duration-500">
                 {step === 1 && <StepWebsite onComplete={handleStep1Complete} />}
 
                 {step === 2 && data.competitors && (

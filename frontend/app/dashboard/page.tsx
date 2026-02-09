@@ -12,10 +12,10 @@ import {
 } from "@/lib/dashboard-utils";
 import { Loader2 } from "lucide-react";
 
-type TabType = 'executive' | 'operational' | 'upload';
+type TabType = 'executive' | 'operational' | 'data';
 
 export default function DashboardPage() {
-    const [activeTab, setActiveTab] = useState<TabType>('upload');
+    const [activeTab, setActiveTab] = useState<TabType>('data');
     const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -101,50 +101,43 @@ export default function DashboardPage() {
     };
 
     return (
-        <main className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
-            {/* Header */}
-            <header className="bg-white border-b border-slate-200 shadow-sm sticky top-0 z-50">
-                <div className="max-w-7xl mx-auto px-4 py-4">
-                    <div className="flex items-center justify-between mb-4">
+        <main className="min-h-screen bg-background">
+            {/* Header / Navigation */}
+            <header className="bg-background/80 border-b border-border sticky top-0 z-50 backdrop-blur-md supports-[backdrop-filter]:bg-background/80">
+                <div className="max-w-7xl mx-auto px-6 py-4">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-2">
                         <div>
-                            <h1 className="text-2xl font-bold text-slate-800">
-                                CALO VOICE OF CUSTOMER
+                            <h1 className="text-xl font-semibold text-foreground tracking-tight">
+                                VoC Intelligence
                             </h1>
-                            {lastUpdated && (
-                                <p className="text-sm text-slate-500 mt-1">
-                                    Last Updated: {lastUpdated}
-                                </p>
-                            )}
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                                Last updated: {new Date().toLocaleDateString()}
+                            </p>
                         </div>
 
                         {/* Tab Navigation */}
-                        <nav className="flex gap-2">
+                        <nav className="flex items-center gap-1 bg-muted p-1 rounded-lg self-start md:self-auto">
                             <TabButton
                                 active={activeTab === 'executive'}
                                 onClick={() => setActiveTab('executive')}
-                                disabled={!dashboardData}
-                            >
-                                Executive
-                            </TabButton>
+                                label="Executive"
+                            />
                             <TabButton
                                 active={activeTab === 'operational'}
                                 onClick={() => setActiveTab('operational')}
-                                disabled={!dashboardData}
-                            >
-                                Operational
-                            </TabButton>
+                                label="Operational"
+                            />
                             <TabButton
-                                active={activeTab === 'upload'}
-                                onClick={() => setActiveTab('upload')}
-                            >
-                                Upload Data
-                            </TabButton>
+                                active={activeTab === 'data'}
+                                onClick={() => setActiveTab('data')}
+                                label="Data Source"
+                            />
                         </nav>
                     </div>
 
                     {/* Brand Filter */}
                     {availableBrands.length > 0 && (
-                        <div className="border-t border-slate-200 pt-4">
+                        <div className="pt-3 mt-1">
                             <BrandFilter
                                 availableBrands={availableBrands}
                                 selectedBrands={selectedBrands}
@@ -159,24 +152,21 @@ export default function DashboardPage() {
             </header>
 
             {/* Content */}
-            <div className="max-w-7xl mx-auto px-4 py-8">
+            <div className="max-w-7xl mx-auto px-6 py-10">
                 {isLoading && (
-                    <div className="flex items-center justify-center py-24">
-                        <div className="text-center">
-                            <Loader2 className="h-12 w-12 text-teal-500 animate-spin mx-auto mb-4" />
-                            <p className="text-lg font-semibold text-slate-700">Loading dashboard data...</p>
-                            <p className="text-sm text-slate-500 mt-2">This may take a few moments</p>
-                        </div>
+                    <div className="flex flex-col items-center justify-center py-32 animate-in fade-in duration-500">
+                        <Loader2 className="h-8 w-8 text-muted-foreground animate-spin mb-4" />
+                        <p className="text-sm font-medium text-muted-foreground">Processing insights...</p>
                     </div>
                 )}
 
                 {error && (
-                    <div className="bg-red-50 border border-red-200 rounded-lg p-6 mb-6">
-                        <h3 className="font-bold text-red-900 mb-2">❌ Error Loading Data</h3>
-                        <p className="text-red-800">{error}</p>
+                    <div className="bg-destructive/10 border border-destructive/20 rounded-xl p-6 mb-6 max-w-lg mx-auto text-center">
+                        <h3 className="font-semibold text-destructive mb-1">Unable to Load Data</h3>
+                        <p className="text-sm text-destructive/80 mb-4">{error}</p>
                         <button
-                            onClick={() => setActiveTab('upload')}
-                            className="mt-4 text-sm text-red-700 underline hover:text-red-900"
+                            onClick={() => setActiveTab('data')}
+                            className="text-xs font-medium bg-background border border-destructive/30 text-destructive px-4 py-2 rounded-lg hover:bg-destructive/5 transition-colors shadow-sm"
                         >
                             Try uploading again
                         </button>
@@ -184,7 +174,7 @@ export default function DashboardPage() {
                 )}
 
                 {!isLoading && !error && (
-                    <>
+                    <div className="animate-in fade-in slide-in-from-bottom-2 duration-500">
                         {activeTab === 'executive' && dashboardData && (
                             <ExecutiveDashboard data={dashboardData} />
                         )}
@@ -193,34 +183,39 @@ export default function DashboardPage() {
                             <OperationalDashboard data={dashboardData} />
                         )}
 
-                        {activeTab === 'upload' && (
-                            <UploadData onDataLoaded={loadDataFromUrl} />
+                        {activeTab === 'data' && (
+                            <div className="max-w-2xl mx-auto">
+                                <UploadData onDataLoaded={loadDataFromUrl} />
+                            </div>
                         )}
 
-                        {!dashboardData && activeTab !== 'upload' && (
-                            <div className="text-center py-24">
-                                <p className="text-lg font-semibold text-slate-700 mb-2">
-                                    No data loaded yet
-                                </p>
-                                <p className="text-sm text-slate-500 mb-6">
-                                    Please upload a CSV file or provide an S3 URL to view the dashboard
+                        {!dashboardData && activeTab !== 'data' && (
+                            <div className="text-center py-32">
+                                <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-muted mb-4">
+                                    <svg className="w-6 h-6 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 13h6m-3-3v6m-9 1V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
+                                    </svg>
+                                </div>
+                                <h3 className="text-lg font-semibold text-foreground mb-2">No Data Available</h3>
+                                <p className="text-sm text-muted-foreground mb-6 max-w-sm mx-auto">
+                                    Upload a CSV file or provide an S3 URL to generate the dashboard.
                                 </p>
                                 <button
-                                    onClick={() => setActiveTab('upload')}
-                                    className="bg-teal-500 hover:bg-teal-600 text-white font-bold py-3 px-6 rounded-lg transition-colors"
+                                    onClick={() => setActiveTab('data')}
+                                    className="bg-primary hover:bg-primary/90 text-primary-foreground text-sm font-medium py-2.5 px-6 rounded-lg transition-colors shadow-sm"
                                 >
                                     Upload Data
                                 </button>
                             </div>
                         )}
-                    </>
+                    </div>
                 )}
             </div>
 
             {/* Footer */}
-            <footer className="bg-white border-t border-slate-200 mt-16">
-                <div className="max-w-7xl mx-auto px-4 py-6 text-center">
-                    <p className="text-xs text-slate-400">
+            <footer className="border-t border-border mt-auto bg-card">
+                <div className="max-w-7xl mx-auto px-6 py-8 text-center">
+                    <p className="text-xs font-medium text-muted-foreground">
                         © 2026 HorusCX. All rights reserved.
                     </p>
                 </div>
@@ -229,26 +224,19 @@ export default function DashboardPage() {
     );
 }
 
-interface TabButtonProps {
-    active: boolean;
-    onClick: () => void;
-    disabled?: boolean;
-    children: React.ReactNode;
-}
-
-function TabButton({ active, onClick, disabled = false, children }: TabButtonProps) {
+function TabButton({ active, onClick, label }: { active: boolean; onClick: () => void; label: string }) {
     return (
         <button
             onClick={onClick}
-            disabled={disabled}
-            className={`px-6 py-2 font-semibold rounded-lg transition-all ${active
-                ? 'bg-teal-500 text-white shadow-md'
-                : disabled
-                    ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
+            className={`
+                relative px-3 py-1.5 text-sm font-medium rounded-md transition-all duration-200
+                ${active
+                    ? 'text-foreground bg-background shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-background/50'
+                }
+            `}
         >
-            {children}
+            {label}
         </button>
     );
 }
@@ -295,22 +283,20 @@ function BrandFilter({
     const selectedCount = isAllSelected ? availableBrands.length : selectedBrands.length;
 
     return (
-        <div className="relative brand-filter-container">
-            <div className="flex items-center gap-4">
-                <label className="text-sm font-bold text-slate-700">Filter by Brand:</label>
-
-                {/* Dropdown Button */}
+        <div className="relative brand-filter-container inline-block">
+            <div className="flex items-center gap-3">
                 <button
                     onClick={() => setIsOpen(!isOpen)}
-                    className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors text-sm font-medium text-slate-700"
+                    className="flex items-center gap-2 px-3 py-1.5 bg-background border border-dashed border-input rounded-md hover:border-ring/50 hover:bg-accent transition-colors text-xs font-medium text-muted-foreground group"
                 >
-                    <span>
+                    <span className="text-muted-foreground">Filter:</span>
+                    <span className="text-foreground">
                         {isAllSelected
-                            ? `All Brands (${availableBrands.length})`
-                            : `${selectedCount} Brand${selectedCount !== 1 ? 's' : ''} Selected`}
+                            ? `All Brands`
+                            : `${selectedCount} Selected`}
                     </span>
                     <svg
-                        className={`w-4 h-4 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+                        className={`w-3.5 h-3.5 text-muted-foreground transition-transform group-hover:text-foreground ${isOpen ? 'rotate-180' : ''}`}
                         fill="none"
                         stroke="currentColor"
                         viewBox="0 0 24 24"
@@ -319,51 +305,69 @@ function BrandFilter({
                     </svg>
                 </button>
 
-                {/* Quick Actions */}
-                <div className="flex gap-2">
+                {!isAllSelected && (
                     <button
                         onClick={onSelectAll}
-                        className="text-xs text-teal-600 hover:text-teal-700 font-semibold underline"
+                        className="text-xs text-muted-foreground hover:text-foreground font-medium transition-colors"
                     >
-                        Select All
+                        Reset
                     </button>
-                    <span className="text-slate-300">|</span>
-                    <button
-                        onClick={onDeselectAll}
-                        className="text-xs text-slate-600 hover:text-slate-700 font-semibold underline"
-                    >
-                        Clear
-                    </button>
-                </div>
+                )}
             </div>
 
             {/* Dropdown Menu */}
             {isOpen && (
-                <div className="absolute top-full left-0 mt-2 bg-white border border-slate-200 rounded-lg shadow-lg z-50 min-w-[300px] max-h-[400px] overflow-y-auto">
-                    <div className="p-2">
-                        {availableBrands.map((brand) => {
-                            const isSelected = isAllSelected || selectedBrands.includes(brand);
-                            return (
-                                <label
-                                    key={brand}
-                                    className="flex items-center gap-3 px-3 py-2 hover:bg-slate-50 rounded-md cursor-pointer transition-colors"
-                                >
-                                    <input
-                                        type="checkbox"
-                                        checked={isSelected}
-                                        onChange={() => onToggleBrand(brand)}
-                                        className="w-4 h-4 text-teal-500 border-slate-300 rounded focus:ring-teal-500"
-                                    />
-                                    <span className="flex-1 text-sm font-medium text-slate-700">
-                                        {brand}
-                                    </span>
-                                    <span className="text-xs text-slate-500 bg-slate-100 px-2 py-1 rounded">
-                                        {brandCounts[brand]} reviews
-                                    </span>
-                                </label>
-                            );
-                        })}
+                <div className="absolute top-full left-0 mt-2 bg-popover border border-border rounded-xl shadow-lg shadow-black/5 z-50 w-64 max-h-[400px] overflow-y-auto p-1.5">
+                    <div className="px-2 py-1.5 border-b border-border mb-1 flex items-center justify-between">
+                        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Select Brands</span>
+                        <div className="flex gap-2">
+                            <button
+                                onClick={onSelectAll}
+                                className="text-[10px] bg-accent hover:bg-accent/80 text-accent-foreground px-2 py-0.5 rounded border border-input transition-colors"
+                            >
+                                All
+                            </button>
+                            <button
+                                onClick={onDeselectAll}
+                                className="text-[10px] hover:bg-accent text-muted-foreground hover:text-accent-foreground px-2 py-0.5 rounded transition-colors"
+                            >
+                                Clear
+                            </button>
+                        </div>
                     </div>
+                    {availableBrands.map((brand) => {
+                        const isSelected = isAllSelected || selectedBrands.includes(brand);
+                        return (
+                            <label
+                                key={brand}
+                                className={`flex items-center gap-3 px-2 py-1.5 rounded-lg cursor-pointer transition-colors ${isSelected ? 'bg-accent' : 'hover:bg-accent'
+                                    }`}
+                            >
+                                <div className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${isSelected ? 'bg-primary border-primary' : 'border-input bg-background'
+                                    }`}>
+                                    {isSelected && (
+                                        <svg className="w-2.5 h-2.5 text-primary-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                        </svg>
+                                    )}
+                                </div>
+                                <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={() => onToggleBrand(brand)}
+                                    className="hidden"
+                                />
+                                <div className="flex-1 min-w-0">
+                                    <p className={`text-sm font-medium truncate ${isSelected ? 'text-foreground' : 'text-muted-foreground'}`}>
+                                        {brand}
+                                    </p>
+                                </div>
+                                <span className="text-xs text-muted-foreground font-mono">
+                                    {brandCounts[brand]}
+                                </span>
+                            </label>
+                        );
+                    })}
                 </div>
             )}
         </div>
