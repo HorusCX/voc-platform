@@ -34,13 +34,14 @@ export interface JobStatus {
     s3_key?: string;
     summary?: string;
     dashboard_link?: string;
-    body?: any;
-    result?: any;
+    body?: unknown;
+    result?: unknown;
     // New fields for analysis progress
     processed?: number;
     total?: number;
     job_id?: string;
     email_sent?: boolean;
+    [key: string]: unknown;
 }
 
 export const VoCService = {
@@ -64,13 +65,13 @@ export const VoCService = {
         return response.data;
     },
 
-    sendToWebhook: async (data: any) => {
+    sendToWebhook: async (data: Record<string, unknown>) => {
         // Matches the /api/scrapped-data endpoint in main.py
         const response = await api.post('/api/scrapped-data', data);
         return response.data;
     },
 
-    submitDimensions: async (payload: any) => {
+    submitDimensions: async (payload: { job_id: string; dimensions: string[] } | Record<string, unknown>) => {
         const response = await api.post<{ status: string; message: string; job_id?: string }>('/api/final-analysis', payload);
         return response.data;
     },

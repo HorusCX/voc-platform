@@ -1,9 +1,16 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Company, VoCService } from "@/lib/api";
 import { Card } from "../ui/Card";
 import { Loader2, Play, AlertCircle, MapPin, Plus, X, Search } from "lucide-react";
+
+interface MapsLink {
+    name: string;
+    url: string;
+    place_id?: string;
+    reviews_count?: number;
+}
 
 interface StepAppIdsProps {
     initialData: Company[];
@@ -15,10 +22,8 @@ export function StepAppIds({ initialData, onComplete }: StepAppIdsProps) {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    // State to track which items are currently discovering maps (using a Set for O(1) lookups)
+    // State to track which items are currently discovering maps
     const [discoveringIndices, setDiscoveringIndices] = useState<Set<number>>(new Set());
-    // We can't easily track status messages for multiple items with one string, so we'll omit the detailed status message in parallel mode
-    // or we could make it a map: index -> message. Let's keep it simple for now and just show "Loading..."
     const [discoveryStatuses, setDiscoveryStatuses] = useState<{ [key: number]: string }>({});
 
     // State for new link inputs (map of index -> string)
@@ -27,35 +32,19 @@ export function StepAppIds({ initialData, onComplete }: StepAppIdsProps) {
     // Use ref to ensure auto-discovery only runs once per mount
     const hasAutoDiscovered = useRef(false);
 
-    useEffect(() => {
-        if (hasAutoDiscovered.current || !items.length) return;
+    const updateItem = useCallback((index: number, field: keyof Company, value: string | boolean | (string | MapsLink)[]) => {
+        setItems(currentItems => {
+            const newItems = [...currentItems];
+            if (newItems[index]) {
+                newItems[index] = { ...newItems[index], [field]: value };
+            }
+            return newItems;
+        });
+    }, []);
 
-        const runAutoDiscovery = async () => {
-            hasAutoDiscovered.current = true;
-
-            // Sequential discovery to avoid overwhelming the backend/browser
-            // Parallel discovery for all items
-            await Promise.all(items.map(async (item, i) => {
-                if (!item.google_maps_links || item.google_maps_links.length === 0) {
-                    await handleDiscoverMaps(i);
-                }
-            }));
-        };
-
-        runAutoDiscovery();
-    }, []); // Empty dependency array to run only on mount
-
-    const updateItem = (index: number, field: keyof Company, value: any) => {
-        const newItems = [...items];
-        newItems[index] = { ...newItems[index], [field]: value };
-        setItems(newItems);
-    };
-
-    const handleDiscoverMaps = async (index: number) => {
+    const handleDiscoverMaps = useCallback(async (index: number) => {
         const item = items[index];
-        if (!item.company_name) return;
-
-        console.log(`🔍 Starting discovery for ${item.company_name} (index: ${index})`);
+        if (!item?.company_name) return;
 
         setDiscoveringIndices(prev => {
             const newSet = new Set(prev);
@@ -65,19 +54,14 @@ export function StepAppIds({ initialData, onComplete }: StepAppIdsProps) {
         setDiscoveryStatuses(prev => ({ ...prev, [index]: "Starting..." }));
 
         try {
-            // Step 1: Start discovery job (returns immediately with job_id)
             const { job_id } = await VoCService.discoverMapsLinks(
                 item.company_name,
                 item.website || ""
             );
 
-            console.log(`✅ Discovery job started: ${job_id}`);
-
-            // Step 2: Poll for results
             const pollInterval = setInterval(async () => {
                 try {
                     const statusData = await VoCService.checkStatus(job_id);
-                    console.log(`📊 Poll status for ${item.company_name}:`, statusData.status);
 
                     if (statusData.status === "running" && statusData.message) {
                         setDiscoveryStatuses(prev => ({ ...prev, [index]: statusData.message || "Running..." }));
@@ -88,107 +72,54 @@ export function StepAppIds({ initialData, onComplete }: StepAppIdsProps) {
                     if (statusData.status === "completed") {
                         clearInterval(pollInterval);
 
-                        // Extract locations from result
-                        const newLocations = statusData.result?.locations || [];
-                        console.log(`🎯 Discovery complete for ${item.company_name}: ${newLocations.length} locations found`);
-                        console.log('First location:', newLocations[0]);
+                        const result = statusData.result as { locations?: (string | MapsLink)[] };
+                        const newLocations = result?.locations || [];
 
-                        // Handle new format: locations is array of {place_id, name, url, reviews_count}
-                        const existingLinks = item.google_maps_links || [];
+                        if (newLocations.length === 0) {
+                            setDiscoveryStatuses(prev => ({ ...prev, [index]: "No maps links found." }));
+                        } else {
+                            setDiscoveryStatuses(prev => ({ ...prev, [index]: "Completed." }));
 
-                        // Convert location objects to structured format for display
-                        const newLinks = newLocations.map((loc: any) => {
-                            if (typeof loc === 'string') {
-                                return { name: loc, url: '', reviews_count: null, place_id: '' };
-                            }
-                            return {
-                                name: loc.name || loc.url || '',
-                                url: loc.url || '',
-                                reviews_count: loc.reviews_count || null,
-                                place_id: loc.place_id || ''
-                            };
-                        }).filter((loc: any) => loc.name);
+                            const existingLinks = item.google_maps_links || [];
+                            const newLinks: MapsLink[] = newLocations.map((loc: MapsLink | string) => {
+                                if (typeof loc === 'string') {
+                                    return { name: loc, url: '', reviews_count: undefined, place_id: '' };
+                                }
+                                return {
+                                    name: loc.name || loc.url || '',
+                                    url: loc.url || '',
+                                    reviews_count: loc.reviews_count ?? undefined,
+                                    place_id: loc.place_id || undefined
+                                };
+                            }).filter((loc: MapsLink) => loc.name);
 
-                        console.log(`📍 Processed ${newLinks.length} valid locations`);
+                            const existingNames = new Set(existingLinks.map((l: string | MapsLink) => typeof l === 'string' ? l : l.name));
+                            const mergedLinks: (string | MapsLink)[] = [
+                                ...existingLinks.map((l: string | MapsLink) => typeof l === 'string' ? { name: l, url: '', reviews_count: undefined, place_id: undefined } : l),
+                                ...newLinks.filter((l: MapsLink) => !existingNames.has(l.name))
+                            ];
 
-                        // Merge with existing, avoiding duplicates by name
-                        const existingNames = new Set(existingLinks.map((l: any) => typeof l === 'string' ? l : l.name));
-                        const mergedLinks = [
-                            ...existingLinks.map((l: any) => typeof l === 'string' ? { name: l, url: '', reviews_count: null, place_id: '' } : l),
-                            ...newLinks.filter((l: any) => !existingNames.has(l.name))
-                        ];
-
-                        console.log(`🔗 Total links after merge: ${mergedLinks.length}`);
-
-                        // Use functional update to ensure fresh state if called in loop
-                        setItems(currentItems => {
-                            const newItems = [...currentItems];
-                            console.log(`🔄 Updating state - current items count: ${newItems.length}, index: ${index}`);
-                            if (newItems[index]) {
-                                console.log(`✏️ Updating ${newItems[index].company_name} with ${mergedLinks.length} links`);
-                                newItems[index] = { ...newItems[index], google_maps_links: mergedLinks };
-                            } else {
-                                console.error(`❌ Index ${index} not found in items array!`);
-                            }
-                            return newItems;
-                        });
+                            updateItem(index, 'google_maps_links', mergedLinks);
+                        }
 
                         setDiscoveringIndices(prev => {
                             const newSet = new Set(prev);
                             newSet.delete(index);
                             return newSet;
                         });
-                        setDiscoveryStatuses(prev => {
-                            const { [index]: _, ...rest } = prev;
-                            return rest;
-                        });
-
-                    } else if (statusData.status === "error") {
+                    } else if (statusData.status === "error" || statusData.status === "failed") {
                         clearInterval(pollInterval);
-                        console.error("Discovery error:", statusData.message);
+                        setDiscoveryStatuses(prev => ({ ...prev, [index]: `Failed: ${statusData.message || "Unknown error"}` }));
                         setDiscoveringIndices(prev => {
                             const newSet = new Set(prev);
                             newSet.delete(index);
                             return newSet;
                         });
-                        setDiscoveryStatuses(prev => {
-                            const { [index]: _, ...rest } = prev;
-                            return rest;
-                        });
-                        alert(`Discovery failed for ${item.company_name}: ${statusData.message}`);
                     }
-                    // else: still processing, keep polling
-
                 } catch (pollErr) {
                     console.error("Polling error:", pollErr);
-                    // Don't clear interval, keep trying
                 }
-            }, 3000); // Poll every 3 seconds
-
-            // Timeout after 5 minutes (increased from 2)
-            setTimeout(() => {
-                clearInterval(pollInterval);
-                if (discoveringIndices.has(index)) { // Only if still processing (check against current state might be tricky in closure, but polling stops so it's safer)
-                    // Note: discoveringIndices in closure is stale. We rely on the interval clearing.
-                    // But to update state safely:
-                    setDiscoveringIndices(prev => {
-                        const newSet = new Set(prev);
-                        if (newSet.has(index)) {
-                            newSet.delete(index);
-                            return newSet;
-                        }
-                        return prev;
-                    });
-                    setDiscoveryStatuses(prev => {
-                        const { [index]: _, ...rest } = prev;
-                        return rest;
-                    });
-                    console.error("Discovery timeout");
-                    // alert("Discovery timed out. Please try again or add links manually."); 
-                    // Alert might be annoying if multiple timeout together. Log it.
-                }
-            }, 300000);
-
+            }, 5000);
         } catch (err) {
             console.error("Discovery failed to start", err);
             setDiscoveringIndices(prev => {
@@ -197,7 +128,22 @@ export function StepAppIds({ initialData, onComplete }: StepAppIdsProps) {
                 return newSet;
             });
         }
-    };
+    }, [items, updateItem]);
+
+    useEffect(() => {
+        if (hasAutoDiscovered.current || !items.length) return;
+
+        const runAutoDiscovery = async () => {
+            hasAutoDiscovered.current = true;
+            await Promise.all(items.map(async (item, i) => {
+                if (!item.google_maps_links || item.google_maps_links.length === 0) {
+                    await handleDiscoverMaps(i);
+                }
+            }));
+        };
+
+        runAutoDiscovery();
+    }, [items, handleDiscoverMaps]);
 
     const addLink = (index: number) => {
         const url = newLinkInputs[index]?.trim();
@@ -205,25 +151,21 @@ export function StepAppIds({ initialData, onComplete }: StepAppIdsProps) {
 
         const item = items[index];
         const currentLinks = item.google_maps_links || [];
-
-        // Check if already exists
-        const exists = currentLinks.some((l: any) =>
+        const exists = currentLinks.some((l: string | MapsLink) =>
             (typeof l === 'string' ? l : l.name || l.url) === url
         );
 
         if (!exists) {
-            // Add as structured object
-            updateItem(index, "google_maps_links", [...currentLinks, { name: url, url: url, reviews_count: null, place_id: '' }]);
+            updateItem(index, "google_maps_links", [...currentLinks, { name: url, url: url, reviews_count: undefined, place_id: '' }]);
         }
-
         setNewLinkInputs(prev => ({ ...prev, [index]: "" }));
     };
 
-    const removeLink = (index: number, linkToRemove: any) => {
+    const removeLink = (index: number, linkToRemove: string | MapsLink) => {
         const item = items[index];
         const currentLinks = item.google_maps_links || [];
         const linkName = typeof linkToRemove === 'string' ? linkToRemove : linkToRemove.name;
-        updateItem(index, "google_maps_links", currentLinks.filter((l: any) =>
+        updateItem(index, "google_maps_links", (currentLinks as (string | MapsLink)[]).filter((l: string | MapsLink) =>
             (typeof l === 'string' ? l : l.name) !== linkName
         ));
     };
@@ -231,18 +173,11 @@ export function StepAppIds({ initialData, onComplete }: StepAppIdsProps) {
     const handleStartScraping = async () => {
         setLoading(true);
         setError(null);
-
-        // Generate Job ID
         const jobId = `job_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
 
         try {
-            const response = await VoCService.startScraping({
-                brands: items,
-                job_id: jobId
-            });
-
+            await VoCService.startScraping({ brands: items, job_id: jobId });
             onComplete({ job_id: jobId, brands: items });
-
         } catch (err) {
             console.error(err);
             setError("Failed to start scraping job. Check backend connection.");
@@ -250,15 +185,14 @@ export function StepAppIds({ initialData, onComplete }: StepAppIdsProps) {
         }
     };
 
-    // Helper to get display info from a link (handles both old string format and new object format)
-    const getLinkInfo = (link: any) => {
+    const getLinkInfo = (link: string | MapsLink) => {
         if (typeof link === 'string') {
             return { name: link, url: '', reviews_count: null };
         }
         return {
             name: link.name || link.url || '',
             url: link.url || '',
-            reviews_count: link.reviews_count || null
+            reviews_count: link.reviews_count ?? null
         };
     };
 
@@ -270,23 +204,14 @@ export function StepAppIds({ initialData, onComplete }: StepAppIdsProps) {
                         <AlertCircle className="h-5 w-5 shrink-0 text-primary" />
                         <p>
                             Verify App IDs and Google Maps locations.
-                            Use <strong>Auto-Discover</strong> to find all maps branches for deeper insights.
                         </p>
                     </div>
-
-                    {/* Global Progress Indicator */}
-                    {discoveringIndices.size > 0 && (
-                        <div className="mt-2 pl-7 flex items-center gap-2 text-primary font-medium animate-pulse">
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                            <span>Discovering locations for {discoveringIndices.size} brand{discoveringIndices.size > 1 ? 's' : ''}... please wait.</span>
-                        </div>
-                    )}
                 </div>
 
                 <div className="space-y-4">
                     {items.map((item, index) => (
-                        <div key={index} className="p-4 bg-card rounded-lg border border-border shadow-sm transition-all hover:shadow-md">
-                            <h4 className="font-semibold text-lg text-foreground mb-3 flex items-center gap-2">
+                        <div key={index} className="p-4 bg-card rounded-lg border border-border">
+                            <h4 className="font-semibold text-lg mb-3 flex items-center gap-2">
                                 {item.company_name}
                                 {item.is_main && <span className="text-xs bg-primary text-primary-foreground px-2 py-0.5 rounded-full">Main</span>}
                             </h4>
@@ -298,8 +223,7 @@ export function StepAppIds({ initialData, onComplete }: StepAppIdsProps) {
                                         type="text"
                                         value={item.android_id || ""}
                                         onChange={(e) => updateItem(index, "android_id", e.target.value)}
-                                        placeholder="com.example.app"
-                                        className="w-full rounded border border-input px-3 py-2 text-sm font-mono text-foreground bg-background focus:ring-1 focus:ring-ring"
+                                        className="w-full rounded border border-input px-3 py-2 text-sm font-mono"
                                     />
                                 </div>
                                 <div>
@@ -308,95 +232,56 @@ export function StepAppIds({ initialData, onComplete }: StepAppIdsProps) {
                                         type="text"
                                         value={item.apple_id || ""}
                                         onChange={(e) => updateItem(index, "apple_id", e.target.value)}
-                                        placeholder="123456789"
-                                        className="w-full rounded border border-input px-3 py-2 text-sm font-mono text-foreground bg-background focus:ring-1 focus:ring-ring"
+                                        className="w-full rounded border border-input px-3 py-2 text-sm font-mono"
                                     />
                                 </div>
                             </div>
 
-                            {/* Google Maps Section */}
                             <div className="border-t border-border pt-3">
                                 <div className="flex items-center justify-between mb-2">
                                     <label className="text-xs font-semibold text-muted-foreground flex items-center gap-1">
                                         <MapPin className="w-3 h-3" /> Google Maps Locations
-                                        {(item.google_maps_links || []).length > 0 && (
-                                            <span className="ml-1 text-primary">({(item.google_maps_links || []).length})</span>
-                                        )}
                                     </label>
                                     {discoveringIndices.has(index) ? (
-                                        <span className="text-xs flex items-center gap-1 text-muted-foreground font-medium">
+                                        <span className="text-xs flex items-center gap-1 text-muted-foreground">
                                             <Loader2 className="w-3 h-3 animate-spin" />
                                             {discoveryStatuses[index] || "Loading..."}
                                         </span>
                                     ) : (
                                         <button
                                             onClick={() => handleDiscoverMaps(index)}
-                                            className="text-xs flex items-center gap-1 text-primary hover:text-primary/80 font-medium"
+                                            className="text-xs text-primary hover:underline"
                                         >
-                                            <Search className="w-3 h-3" />
-                                            Auto-Discover Locations
+                                            <Search className="w-3 h-3 inline mr-1" />
+                                            Auto-Discover
                                         </button>
                                     )}
                                 </div>
 
                                 <div className="space-y-2 max-h-64 overflow-y-auto">
-                                    {/* Existing Links List */}
-                                    {(item.google_maps_links || []).map((link: any, i: number) => {
+                                    {((item.google_maps_links as (string | MapsLink)[]) || []).map((link, i) => {
                                         const info = getLinkInfo(link);
                                         return (
-                                            <div key={i} className="flex items-center gap-2 group">
-                                                <div className="flex-1 bg-muted/30 text-xs px-2 py-1.5 rounded border border-border flex items-center justify-between min-w-0">
-                                                    {/* Clickable name with URL */}
-                                                    {info.url ? (
-                                                        <a
-                                                            href={info.url}
-                                                            target="_blank"
-                                                            rel="noopener noreferrer"
-                                                            className="text-primary hover:underline truncate font-medium"
-                                                            title={info.url}
-                                                        >
-                                                            {info.name}
-                                                        </a>
-                                                    ) : (
-                                                        <span className="text-muted-foreground truncate">{info.name}</span>
-                                                    )}
-                                                    {/* Reviews count badge */}
-                                                    {info.reviews_count && (
-                                                        <span className="ml-2 shrink-0 text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full font-medium border border-border">
-                                                            {info.reviews_count} reviews
-                                                        </span>
-                                                    )}
+                                            <div key={i} className="flex items-center gap-2">
+                                                <div className="flex-1 bg-muted/30 text-xs px-2 py-1.5 rounded border border-border flex items-center justify-between truncate">
+                                                    <span className="truncate">{info.name}</span>
+                                                    {info.reviews_count && <span className="text-[10px] opacity-60 ml-2">{info.reviews_count} reviews</span>}
                                                 </div>
-                                                <button
-                                                    onClick={() => removeLink(index, link)}
-                                                    className="text-muted-foreground hover:text-destructive transition-colors px-2"
-                                                    title="Remove link"
-                                                >
+                                                <button onClick={() => removeLink(index, link)} className="text-muted-foreground hover:text-destructive">
                                                     <X className="w-4 h-4" />
                                                 </button>
                                             </div>
                                         );
                                     })}
-
-                                    {/* Add New Link */}
                                     <div className="flex gap-2">
                                         <input
                                             type="text"
                                             value={newLinkInputs[index] || ""}
                                             onChange={(e) => setNewLinkInputs(prev => ({ ...prev, [index]: e.target.value }))}
                                             placeholder="Paste Google Maps link..."
-                                            className="flex-1 rounded border border-input px-2 py-1.5 text-xs text-foreground bg-background focus:ring-1 focus:ring-ring"
-                                            onKeyDown={(e) => {
-                                                if (e.key === 'Enter') {
-                                                    e.preventDefault();
-                                                    addLink(index);
-                                                }
-                                            }}
+                                            className="flex-1 rounded border border-input px-2 py-1.5 text-xs"
                                         />
-                                        <button
-                                            onClick={() => addLink(index)}
-                                            className="p-1.5 bg-muted hover:bg-muted/80 text-muted-foreground rounded border border-border transition-colors"
-                                        >
+                                        <button onClick={() => addLink(index)} className="p-1.5 border rounded">
                                             <Plus className="w-4 h-4" />
                                         </button>
                                     </div>
@@ -411,17 +296,9 @@ export function StepAppIds({ initialData, onComplete }: StepAppIdsProps) {
                 <button
                     onClick={handleStartScraping}
                     disabled={loading}
-                    className="w-full flex items-center justify-center gap-2 bg-primary hover:bg-primary/90 text-primary-foreground font-semibold py-4 px-6 rounded-full shadow-lg hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed transform hover:-translate-y-0.5"
+                    className="w-full flex items-center justify-center gap-2 bg-primary text-primary-foreground font-semibold py-4 px-6 rounded-full disabled:opacity-50"
                 >
-                    {loading ? (
-                        <>
-                            <Loader2 className="h-5 w-5 animate-spin" /> Starting Scraping Job...
-                        </>
-                    ) : (
-                        <>
-                            <Play className="h-5 w-5" /> Start Scraping
-                        </>
-                    )}
+                    {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <><Play className="h-5 w-5" /> Start Scraping</>}
                 </button>
             </div>
         </Card>

@@ -1,0 +1,30 @@
+
+> frontend@0.1.0 lint
+> eslint
+
+
+/Users/mahmoudsaied/Downloads/Anti_Gravity/VoC/VoC_code/frontend/app/dashboard/page.tsx
+  40:8  warning  React Hook useEffect has a missing dependency: 'processReviews'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+/Users/mahmoudsaied/Downloads/Anti_Gravity/VoC/VoC_code/frontend/components/dashboard/UploadData.tsx
+  167:11  error  An interface declaring no members is equivalent to its supertype  @typescript-eslint/no-empty-object-type
+
+/Users/mahmoudsaied/Downloads/Anti_Gravity/VoC/VoC_code/frontend/components/results/SuccessView.tsx
+   30:14  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+   31:18  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+   34:20  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+   57:13  error  'interval' is never reassigned. Use 'const' instead  prefer-const
+   67:51  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+   72:51  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+  161:28  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+  161:60  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+  164:40  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+  164:72  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+  165:43  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+  165:78  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+
+/Users/mahmoudsaied/Downloads/Anti_Gravity/VoC/VoC_code/frontend/components/stepper/StepAppIds.tsx
+  53:8  warning  React Hook useEffect has missing dependencies: 'handleDiscoverMaps' and 'items'. Either include them or remove the dependency array  react-hooks/exhaustive-deps
+
+✖ 15 problems (13 errors, 2 warnings)
+

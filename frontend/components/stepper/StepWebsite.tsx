@@ -1,12 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { VoCService } from "@/lib/api";
+import { Company, VoCService } from "@/lib/api";
 import { ArrowRight, Globe, Loader2 } from "lucide-react";
 import { Card } from "../ui/Card";
 
 interface StepWebsiteProps {
-    onComplete: (data: any) => void;
+    onComplete: (data: Company[]) => void;
 }
 
 export function StepWebsite({ onComplete }: StepWebsiteProps) {
@@ -30,9 +30,9 @@ export function StepWebsite({ onComplete }: StepWebsiteProps) {
 
         try {
             // 1. Submit Job
-            const response: any = await VoCService.analyzeWebsite(url);
+            const response = await VoCService.analyzeWebsite(url) as Company[] | { job_id: string };
 
-            if (response.job_id) {
+            if ('job_id' in response) {
                 // Async Flow: Poll for result
                 const jobId = response.job_id;
                 let attempts = 0;
@@ -41,12 +41,12 @@ export function StepWebsite({ onComplete }: StepWebsiteProps) {
                 const pollInterval = setInterval(async () => {
                     attempts++;
                     try {
-                        const status: any = await VoCService.checkStatus(jobId);
+                        const status = await VoCService.checkStatus(jobId);
 
                         if (status.status === 'completed' && status.result) {
                             clearInterval(pollInterval);
                             setLoading(false);
-                            onComplete(status.result);
+                            onComplete(status.result as Company[]);
                         } else if (status.status === 'error' || status.status === 'failed') {
                             clearInterval(pollInterval);
                             setLoading(false);

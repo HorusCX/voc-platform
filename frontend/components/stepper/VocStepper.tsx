@@ -53,7 +53,6 @@ export default function VocStepper() {
 
                     {[1, 2, 3].map((num) => {
                         const isActive = step >= num;
-                        const isCurrent = step === num;
 
                         return (
                             <div key={num} className="flex flex-col items-center gap-3 bg-background px-2">

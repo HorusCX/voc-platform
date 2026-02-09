@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { ExecutiveDashboard } from "@/components/dashboard/ExecutiveDashboard";
 import { OperationalDashboard } from "@/components/dashboard/OperationalDashboard";
 import { UploadData } from "@/components/dashboard/UploadData";
@@ -19,28 +19,21 @@ export default function DashboardPage() {
     const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [lastUpdated, setLastUpdated] = useState<string>('');
     const [allReviews, setAllReviews] = useState<ReviewData[]>([]);
     const [availableBrands, setAvailableBrands] = useState<string[]>([]);
     const [selectedBrands, setSelectedBrands] = useState<string[]>([]);
 
-    // Check for URL parameter on mount
-    useEffect(() => {
-        const params = new URLSearchParams(window.location.search);
-        const csvUrl = params.get('csv_url');
-        if (csvUrl) {
-            loadDataFromUrl(csvUrl);
-        }
-    }, []);
+    const processReviews = useCallback((reviews: ReviewData[]) => {
+        // Filter reviews by selected brands
+        const filteredReviews = selectedBrands.length > 0
+            ? reviews.filter(r => selectedBrands.includes(r.brand))
+            : reviews;
 
-    // Reprocess data when brand filter changes
-    useEffect(() => {
-        if (allReviews.length > 0) {
-            processReviews(allReviews);
-        }
-    }, [selectedBrands, allReviews]);
+        const processedData = processDashboardData(filteredReviews);
+        setDashboardData(processedData);
+    }, [selectedBrands]);
 
-    const loadDataFromUrl = async (url: string) => {
+    const loadDataFromUrl = useCallback(async (url: string) => {
         setIsLoading(true);
         setError(null);
 
@@ -60,11 +53,6 @@ export default function DashboardPage() {
             // Process initial data
             const processedData = processDashboardData(reviews);
             setDashboardData(processedData);
-            setLastUpdated(new Date().toLocaleDateString('en-US', {
-                month: 'numeric',
-                day: 'numeric',
-                year: 'numeric'
-            }));
             setActiveTab('executive');
         } catch (err) {
             console.error('Error loading data:', err);
@@ -72,17 +60,23 @@ export default function DashboardPage() {
         } finally {
             setIsLoading(false);
         }
-    };
+    }, []);
 
-    const processReviews = (reviews: ReviewData[]) => {
-        // Filter reviews by selected brands
-        const filteredReviews = selectedBrands.length > 0
-            ? reviews.filter(r => selectedBrands.includes(r.brand))
-            : reviews;
+    // Check for URL parameter on mount
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        const csvUrl = params.get('csv_url');
+        if (csvUrl) {
+            loadDataFromUrl(csvUrl);
+        }
+    }, [loadDataFromUrl]);
 
-        const processedData = processDashboardData(filteredReviews);
-        setDashboardData(processedData);
-    };
+    // Reprocess data when brand filter changes
+    useEffect(() => {
+        if (allReviews.length > 0) {
+            processReviews(allReviews);
+        }
+    }, [selectedBrands, allReviews, processReviews]);
 
     const toggleBrand = (brand: string) => {
         setSelectedBrands(prev =>
@@ -216,7 +210,7 @@ export default function DashboardPage() {
             <footer className="border-t border-border mt-auto bg-card">
                 <div className="max-w-7xl mx-auto px-6 py-8 text-center">
                     <p className="text-xs font-medium text-muted-foreground">
-                        © 2026 HorusCX. All rights reserved.
+                        © {new Date().getFullYear()} HorusCX. All rights reserved.
                     </p>
                 </div>
             </footer>

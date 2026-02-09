@@ -1,15 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { Upload, Link as LinkIcon, Loader2, CloudUpload, FileText } from "lucide-react";
-import { useDropzone } from "react-dropzone";
+import { Loader2, CloudUpload, FileText } from "lucide-react";
+import { useDropzone, FileRejection } from "react-dropzone";
 
 interface UploadDataProps {
     onDataLoaded: (url: string) => void;
 }
 
 export function UploadData({ onDataLoaded }: UploadDataProps) {
-    const [uploadMethod, setUploadMethod] = useState<'file' | 'url'>('url');
     const [url, setUrl] = useState('');
     const [isFileLoading, setIsFileLoading] = useState(false);
     const [isUrlLoading, setIsUrlLoading] = useState(false);
@@ -47,7 +46,11 @@ export function UploadData({ onDataLoaded }: UploadDataProps) {
         }
     };
 
-    const onDrop = (acceptedFiles: File[]) => {
+    const onDrop = (acceptedFiles: File[], fileRejections: FileRejection[]) => {
+        if (fileRejections.length > 0) {
+            alert('Invalid file. Please upload a valid CSV.');
+            return;
+        }
         if (acceptedFiles && acceptedFiles.length > 0) {
             handleFileUpload(acceptedFiles[0]);
         }
@@ -147,12 +150,16 @@ export function UploadData({ onDataLoaded }: UploadDataProps) {
 // Simple Button and Input components for this file to avoid big dependencies if not present, 
 // or mapped to semantic vars if they are standard HTML. 
 
-function Button({ className, variant, children, ...props }: any) {
+interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+    variant?: 'outline' | 'default';
+}
+
+function Button({ className, variant, children, ...props }: ButtonProps) {
     return (
         <button
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${variant === 'outline'
-                    ? 'border border-input bg-transparent hover:bg-accent hover:text-accent-foreground text-foreground'
-                    : 'bg-primary text-primary-foreground hover:bg-primary/90'
+                ? 'border border-input bg-transparent hover:bg-accent hover:text-accent-foreground text-foreground'
+                : 'bg-primary text-primary-foreground hover:bg-primary/90'
                 } ${className}`}
             {...props}
         >
@@ -161,7 +168,11 @@ function Button({ className, variant, children, ...props }: any) {
     )
 }
 
-function Input({ className, ...props }: any) {
+interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
+    dummy?: boolean;
+}
+
+function Input({ className, ...props }: InputProps) {
     return (
         <input
             className={`flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${className}`}

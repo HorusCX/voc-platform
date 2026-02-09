@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { VoCService } from "@/lib/api";
 import { Card } from "../ui/Card";
-import { Loader2, CheckCircle, ExternalLink, Send, BarChart3, Download } from "lucide-react";
+import { Loader2, CheckCircle, Send, BarChart3, Download } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface SuccessViewProps {
@@ -11,10 +11,30 @@ interface SuccessViewProps {
     onReset: () => void;
 }
 
+interface VoCResponse {
+    status?: string;
+    message?: string;
+    job_id?: string;
+    s3_key?: string;
+    s3_bucket?: string;
+    processed?: number;
+    total?: number;
+    summary?: string;
+    dashboard_link?: string;
+    csv_download_url?: string;
+    email_sent?: boolean;
+    body?: unknown;
+    output?: unknown;
+    dimensions?: Record<string, unknown>[];
+    link?: string;
+    file_path?: string;
+    [key: string]: unknown;
+}
+
 export function SuccessView({ jobId, onReset }: SuccessViewProps) {
     const [status, setStatus] = useState<'polling' | 'completed' | 'failed'>('polling');
-    const [data, setData] = useState<any>(null);
-    const [dimensions, setDimensions] = useState<any[]>([]); // To hold the dimension form data
+    const [data, setData] = useState<VoCResponse | null>(null);
+    const [dimensions, setDimensions] = useState<Record<string, unknown>[]>([]); // To hold the dimension form data
     const [submittingDims, setSubmittingDims] = useState(false);
 
     // Analysis State
@@ -25,13 +45,12 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
         total: number;
         message: string;
     } | null>(null);
-    const [finalResult, setFinalResult] = useState<any>(null);
+    const [finalResult, setFinalResult] = useState<VoCResponse | null>(null);
 
     // Polling Logic for Scraper
     useEffect(() => {
         if (status !== 'polling') return;
 
-        let interval: NodeJS.Timeout;
         let attempts = 0;
         const maxAttempts = 60; // 10 mins
 
@@ -41,22 +60,20 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
                 const res = await VoCService.checkStatus(jobId);
 
                 if (res.status === 'completed' || res.s3_key) {
-                    setData(res);
+                    setData(res as VoCResponse);
                     setStatus('completed');
-                    clearInterval(interval);
                 } else if (res.status === 'running') {
                     // Update data to show progress message
-                    setData(res);
+                    setData(res as VoCResponse);
                 } else if (res.status === 'failed' || attempts > maxAttempts) {
                     setStatus('failed');
-                    clearInterval(interval);
                 }
             } catch (e) {
                 console.error("Poll error", e);
             }
         };
 
-        interval = setInterval(check, 10000); // 10s
+        const interval = setInterval(check, 10000); // 10s
         check(); // initial
 
         return () => clearInterval(interval);
@@ -102,7 +119,7 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
             // Data extraction helper
             const extract = (field: string) => {
                 // simplified logic based on voc.js
-                if (data[field]) return data[field];
+                if (data && data[field]) return data[field];
                 return null;
             };
 
@@ -120,12 +137,12 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
             // Parse dimensions result
             let dims = [];
             // Type assertion to handle "unknown" response from webhook
-            const resAny = result as any;
+            const resAny = result as Record<string, unknown>;
 
             // Logic from voc.js renderDimensionsForm normalization
             const body = resAny.body || resAny.output || resAny.dimensions || resAny;
             if (Array.isArray(body)) dims = body;
-            else if (typeof body === 'object' && body && (body as any).dimensions) dims = (body as any).dimensions;
+            else if (typeof body === 'object' && body && (body as Record<string, unknown>).dimensions) dims = (body as Record<string, unknown>).dimensions as Record<string, unknown>[];
 
             if (dims.length === 0) {
                 console.warn("No dimensions returned from webhook");
@@ -135,16 +152,18 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
             setDimensions(dims);
 
             // CRITICAL: Update data state with any return file info so it's available for submission
-            if (resAny.body?.s3_key || resAny.s3_key) {
-                setData((prev: any) => ({
+            const resObj = resAny as Record<string, unknown>;
+            const resBody = resObj.body as Record<string, unknown> | undefined;
+
+            if (resBody?.s3_key || resObj.s3_key) {
+                setData((prev: VoCResponse | null) => ({
                     ...prev,
-                    s3_key: resAny.body?.s3_key || resAny.s3_key,
-                    s3_bucket: resAny.body?.s3_bucket || resAny.s3_bucket || prev?.s3_bucket
+                    s3_key: (resBody?.s3_key || resObj.s3_key) as string,
+                    s3_bucket: (resBody?.s3_bucket || resObj.s3_bucket || prev?.s3_bucket) as string
                 }));
             }
 
-        } catch (e) {
-            console.error(e);
+        } catch {
             alert("Failed to process data. The server might be busy or returned an error.");
         } finally {
             setSubmittingDims(false);
@@ -168,14 +187,14 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
                 // Fallback if no job_id returned (legacy behavior), though backend is updated
                 alert("Analysis started but no Job ID returned. Check your email for results.");
             }
-        } catch (e) {
+        } catch {
             alert("Submission failed");
         } finally {
             setSubmittingDims(false);
         }
     };
 
-    const updateDimension = (idx: number, field: string, val: any) => {
+    const updateDimension = (idx: number, field: string, val: string | string[]) => {
         const newDims = [...dimensions];
         newDims[idx] = { ...newDims[idx], [field]: val };
         setDimensions(newDims);
@@ -225,14 +244,14 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
                 </h2>
 
                 <p className="text-slate-600 text-lg mb-8 max-w-md mx-auto">
-                    We've analyzed your reviews and generated actionable insights.
+                    We&apos;ve analyzed your reviews and generated actionable insights.
                 </p>
 
                 {/* Action Section */}
                 {(finalResult.dashboard_link || finalResult.csv_download_url) && (
                     <div className="mb-8 flex flex-col items-center gap-4 transform hover:scale-105 transition-transform duration-300">
                         <a
-                            href={finalResult.dashboard_link || `/dashboard?csv_url=${encodeURIComponent(finalResult.csv_download_url)}`}
+                            href={finalResult.dashboard_link || (finalResult.csv_download_url ? `/dashboard?csv_url=${encodeURIComponent(finalResult.csv_download_url)}` : '#')}
                             target="_blank"
                             className="inline-flex items-center justify-center gap-3 bg-green-600 hover:bg-green-700 text-white px-10 py-4 rounded-xl font-bold text-xl shadow-lg hover:shadow-green-500/30 transition-all"
                         >
@@ -251,7 +270,7 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
 
                 <div className="bg-white/60 backdrop-blur-sm rounded-lg p-4 max-w-sm mx-auto border border-green-100 mb-8">
                     <p className="text-sm text-slate-500">
-                        {finalResult.email_sent
+                        {finalResult?.email_sent
                             ? "📧 A copy of this report has also been sent to info@horuscx.com"
                             : "ℹ️ Analysis complete."}
                     </p>
@@ -390,7 +409,7 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
                                         <label className="text-xs font-bold uppercase text-calo-text-secondary">Dimension</label>
                                         <input
                                             className="w-full mt-1 px-3 py-2 border border-calo-border rounded text-sm bg-white text-slate-800 focus:ring-1 focus:ring-calo-primary"
-                                            value={dim.dimension}
+                                            value={dim.dimension as string}
                                             onChange={(e) => updateDimension(idx, 'dimension', e.target.value)}
                                         />
                                     </div>
@@ -399,7 +418,7 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
                                         <textarea
                                             rows={2}
                                             className="w-full mt-1 px-3 py-2 border border-calo-border rounded text-sm bg-white text-slate-800 focus:ring-1 focus:ring-calo-primary"
-                                            value={dim.description}
+                                            value={dim.description as string}
                                             onChange={(e) => updateDimension(idx, 'description', e.target.value)}
                                         />
                                     </div>
@@ -407,7 +426,7 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
                                         <label className="text-xs font-bold uppercase text-calo-text-secondary">Keywords (Comma Separated)</label>
                                         <input
                                             className="w-full mt-1 px-3 py-2 border border-calo-border rounded text-sm bg-white text-slate-800 focus:ring-1 focus:ring-calo-primary"
-                                            value={Array.isArray(dim.keywords) ? dim.keywords.join(', ') : dim.keywords}
+                                            value={Array.isArray(dim.keywords) ? (dim.keywords as string[]).join(', ') : (dim.keywords as string)}
                                             onChange={(e) => updateDimension(idx, 'keywords', e.target.value.split(',').map((s: string) => s.trim()))}
                                         />
                                     </div>

@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { Company, VoCService } from "@/lib/api";
 import { Card } from "../ui/Card";
-import { Loader2, Trash2, Plus, ArrowRight, Save, Info } from "lucide-react";
+import { Loader2, Trash2, Plus, ArrowRight, Info } from "lucide-react";
 
 interface StepCompetitorsProps {
     initialData: Company[];

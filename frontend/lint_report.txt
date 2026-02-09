@@ -1,0 +1,35 @@
+
+> frontend@0.1.0 lint
+> eslint
+
+
+/Users/mahmoudsaied/Downloads/Anti_Gravity/VoC/VoC_code/frontend/app/dashboard/page.tsx
+  22:12  error    'lastUpdated' is assigned a value but never used                                                                   @typescript-eslint/no-unused-vars
+  41:8   warning  React Hook useEffect has a missing dependency: 'processReviews'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+/Users/mahmoudsaied/Downloads/Anti_Gravity/VoC/VoC_code/frontend/components/dashboard/UploadData.tsx
+    4:10  error  'Upload' is defined but never used                                @typescript-eslint/no-unused-vars
+    4:26  error  'LinkIcon' is defined but never used                              @typescript-eslint/no-unused-vars
+   12:12  error  'uploadMethod' is assigned a value but never used                 @typescript-eslint/no-unused-vars
+   12:26  error  'setUploadMethod' is assigned a value but never used              @typescript-eslint/no-unused-vars
+  168:11  error  An interface declaring no members is equivalent to its supertype  @typescript-eslint/no-empty-object-type
+
+/Users/mahmoudsaied/Downloads/Anti_Gravity/VoC/VoC_code/frontend/components/results/SuccessView.tsx
+    6:32   error  'ExternalLink' is defined but never used                         @typescript-eslint/no-unused-vars
+   16:38   error  Unexpected any. Specify a different type                         @typescript-eslint/no-explicit-any
+   17:50   error  Unexpected any. Specify a different type                         @typescript-eslint/no-explicit-any
+   28:52   error  Unexpected any. Specify a different type                         @typescript-eslint/no-explicit-any
+   34:13   error  'interval' is never reassigned. Use 'const' instead              prefer-const
+  123:38   error  Unexpected any. Specify a different type                         @typescript-eslint/no-explicit-any
+  128:67   error  Unexpected any. Specify a different type                         @typescript-eslint/no-explicit-any
+  128:100  error  Unexpected any. Specify a different type                         @typescript-eslint/no-explicit-any
+  139:32   error  Unexpected any. Specify a different type                         @typescript-eslint/no-explicit-any
+  171:18   error  'e' is defined but never used                                    @typescript-eslint/no-unused-vars
+  178:63   error  Unexpected any. Specify a different type                         @typescript-eslint/no-explicit-any
+  228:23   error  `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`  react/no-unescaped-entities
+
+/Users/mahmoudsaied/Downloads/Anti_Gravity/VoC/VoC_code/frontend/components/stepper/StepAppIds.tsx
+  53:8  warning  React Hook useEffect has missing dependencies: 'handleDiscoverMaps' and 'items'. Either include them or remove the dependency array  react-hooks/exhaustive-deps
+
+✖ 20 problems (18 errors, 2 warnings)
+

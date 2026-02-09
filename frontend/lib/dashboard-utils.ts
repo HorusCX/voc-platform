@@ -219,7 +219,7 @@ export function calculateBrandStats(reviews: ReviewData[]): BrandStats[] {
     const brandStats: BrandStats[] = [];
     brandMap.forEach((brandReviews, brand) => {
         const totalReviews = brandReviews.length;
-        const avgRating = brandReviews.reduce((sum, r) => sum + (parseFloat(r.rating as any) || 0), 0) / totalReviews;
+        const avgRating = brandReviews.reduce((sum, r) => sum + (Number(r.rating) || 0), 0) / totalReviews;
 
         const sentimentCounts = {
             positive: brandReviews.filter(r => r.sentiment?.toLowerCase() === 'positive').length,
@@ -323,7 +323,7 @@ export function processDashboardData(reviews: ReviewData[]): DashboardData {
     const netSentiment = positivePercent - negativePercent;
 
     // Average rating
-    const avgRating = reviews.reduce((sum, r) => sum + (parseFloat(r.rating as any) || 0), 0) / totalReviews;
+    const avgRating = reviews.reduce((sum, r) => sum + (Number(r.rating) || 0), 0) / totalReviews;
 
     // Calculate dimension stats
     const dimensionStats = calculateDimensionStats(reviews);
