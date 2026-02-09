@@ -1,6 +1,6 @@
 "use client";
 
-import { DashboardData } from "@/lib/dashboard-utils";
+import { DashboardData, DimensionStats } from "@/lib/dashboard-utils";
 import { useState, useMemo } from "react";
 import { ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 
@@ -9,7 +9,7 @@ interface OperationalDashboardProps {
 }
 
 type SortConfig = {
-    key: string;
+    key: keyof DimensionStats;
     direction: 'asc' | 'desc';
 } | null;
 
@@ -19,7 +19,7 @@ export function OperationalDashboard({ data }: OperationalDashboardProps) {
     const sortedData = useMemo(() => {
         if (!sortConfig) return data.dimensionStats;
 
-        return [...data.dimensionStats].sort((a: any, b: any) => {
+        return [...data.dimensionStats].sort((a, b) => {
             const aValue = a[sortConfig.key];
             const bValue = b[sortConfig.key];
 
@@ -33,7 +33,7 @@ export function OperationalDashboard({ data }: OperationalDashboardProps) {
         });
     }, [data.dimensionStats, sortConfig]);
 
-    const requestSort = (key: string) => {
+    const requestSort = (key: keyof DimensionStats) => {
         let direction: 'asc' | 'desc' = 'desc';
         if (sortConfig && sortConfig.key === key && sortConfig.direction === 'desc') {
             direction = 'asc';
@@ -41,11 +41,11 @@ export function OperationalDashboard({ data }: OperationalDashboardProps) {
         setSortConfig({ key, direction });
     };
 
-    const getSortIcon = (key: string) => {
+    const getSortIcon = (key: keyof DimensionStats) => {
         if (!sortConfig || sortConfig.key !== key) {
             return <ArrowUpDown className="w-3 h-3 text-muted-foreground/30" />;
         }
-        return sortConfig.direction === 'asc' 
+        return sortConfig.direction === 'asc'
             ? <ArrowUp className="w-3 h-3 text-primary" />
             : <ArrowDown className="w-3 h-3 text-primary" />;
     };
@@ -136,7 +136,7 @@ export function OperationalDashboard({ data }: OperationalDashboardProps) {
                         <thead>
                             <tr className="bg-muted/50 border-b border-border">
                                 <th className="py-3 px-6 font-medium text-muted-foreground text-xs uppercase tracking-wider">Rank</th>
-                                <th 
+                                <th
                                     className="py-3 px-6 font-medium text-muted-foreground text-xs uppercase tracking-wider cursor-pointer hover:text-foreground transition-colors group select-none"
                                     onClick={() => requestSort('dimension')}
                                 >
@@ -145,7 +145,7 @@ export function OperationalDashboard({ data }: OperationalDashboardProps) {
                                         {getSortIcon('dimension')}
                                     </div>
                                 </th>
-                                <th 
+                                <th
                                     className="py-3 px-6 font-medium text-muted-foreground text-xs uppercase tracking-wider text-right cursor-pointer hover:text-foreground transition-colors group select-none"
                                     onClick={() => requestSort('total')}
                                 >
@@ -154,7 +154,7 @@ export function OperationalDashboard({ data }: OperationalDashboardProps) {
                                         {getSortIcon('total')}
                                     </div>
                                 </th>
-                                <th 
+                                <th
                                     className="py-3 px-6 font-medium text-muted-foreground text-xs uppercase tracking-wider text-right cursor-pointer hover:text-foreground transition-colors group select-none"
                                     onClick={() => requestSort('positivePercent')}
                                 >
@@ -163,7 +163,7 @@ export function OperationalDashboard({ data }: OperationalDashboardProps) {
                                         {getSortIcon('positivePercent')}
                                     </div>
                                 </th>
-                                <th 
+                                <th
                                     className="py-3 px-6 font-medium text-muted-foreground text-xs uppercase tracking-wider text-right cursor-pointer hover:text-foreground transition-colors group select-none"
                                     onClick={() => requestSort('negativePercent')}
                                 >
@@ -172,7 +172,7 @@ export function OperationalDashboard({ data }: OperationalDashboardProps) {
                                         {getSortIcon('negativePercent')}
                                     </div>
                                 </th>
-                                <th 
+                                <th
                                     className="py-3 px-6 font-medium text-muted-foreground text-xs uppercase tracking-wider text-right cursor-pointer hover:text-foreground transition-colors group select-none"
                                     onClick={() => requestSort('netSentiment')}
                                 >
@@ -181,7 +181,7 @@ export function OperationalDashboard({ data }: OperationalDashboardProps) {
                                         {getSortIcon('netSentiment')}
                                     </div>
                                 </th>
-                                <th 
+                                <th
                                     className="py-3 px-6 font-medium text-muted-foreground text-xs uppercase tracking-wider text-right cursor-pointer hover:text-foreground transition-colors group select-none"
                                     onClick={() => requestSort('impact')}
                                 >
