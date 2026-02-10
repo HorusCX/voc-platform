@@ -480,8 +480,8 @@ async def api_scrap_reviews(request: ScrapRequest, background_tasks: BackgroundT
     
     return {"message": "Scraping started", "job_id": job_id}
 
-@app.post("/api/update-job-config")
-async def api_update_job_config(request: UpdateJobConfigRequest):
+@app.post("/api/update-job-status")
+async def api_update_job_status_manual(request: UpdateJobConfigRequest):
     """
     Updates the unified job configuration in S3.
     Used for saving resolved App IDs or manual user edits.
