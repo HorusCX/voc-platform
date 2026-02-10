@@ -359,56 +359,26 @@ async def check_status(job_id: str):
         logger.error(f"Error checking job config status: {e}")
 
     # Path B: Legacy Website Analysis Result
-    analysis_key = f"analysis_results/{job_id}.json"
+    # Path A: Unified Job Config (Source of truth)
+    job_config_key = f"job_config/{job_id}.json"
     try:
-        response = s3_client.get_object(Bucket=S3_BUCKET_NAME, Key=analysis_key)
+        response = s3_client.get_object(Bucket=S3_BUCKET_NAME, Key=job_config_key)
         data = json.loads(response['Body'].read().decode('utf-8'))
         return {
             "status": "completed",
-            "result": data
+            "result": data.get("brands", data) 
         }
     except s3_client.exceptions.NoSuchKey:
-        pass # Not found, check next path
+        pass
     except Exception as e:
-        logger.error(f"Error checking analysis status: {e}")
+        logger.error(f"Error checking job config status: {e}")
 
-    # Path B: Discovery Result (NEW)
-    if job_id.startswith("discovery_"):
-        discovery_key = f"discovery_results/{job_id}.json"
-        try:
-            response = s3_client.get_object(Bucket=S3_BUCKET_NAME, Key=discovery_key)
-            data = json.loads(response['Body'].read().decode('utf-8'))
-            return {
-                "status": "completed",
-                "result": data
-            }
-        except s3_client.exceptions.NoSuchKey:
-             # Check for progress status
-            try:
-                progress_key = f"processing_status/{job_id}.json"
-                response = s3_client.get_object(Bucket=S3_BUCKET_NAME, Key=progress_key)
-                progress_data = json.loads(response['Body'].read().decode('utf-8'))
-                return progress_data # {"status": "running", "message": "...", "job_id": ...}
-            except:
-                return {"status": "processing", "message": "Discovering locations..."}
-
-        except Exception as e:
-            logger.error(f"Error checking discovery status: {e}")
-            return {"status": "error", "message": str(e)}
-
-    # Path B2: Analysis Job (NEW - Unified with Discovery/Generic S3 Status)
-    # Check for processing_status first as it might be running
+    # Path B: Check for progress status
     try:
         progress_key = f"processing_status/{job_id}.json"
         response = s3_client.get_object(Bucket=S3_BUCKET_NAME, Key=progress_key)
         progress_data = json.loads(response['Body'].read().decode('utf-8'))
         
-        # If it's completed, we might want to fetch the full result or just return this if it has the link
-        # The analyze_reviews service writes "completed" status to this file too.
-        # But for full result details (like the big JSON), we might check analysis_results/{job_id}.json if we saved it there?
-        # analyze_reviews logic doesn't save full result to S3 as JSON, it saves CSV. 
-        # But it returns dict. 
-        # Generate presigned URL if s3_key is present in progress data
         if progress_data.get("s3_key"):
             url = generate_presigned_url(progress_data["s3_key"])
             if url:
@@ -416,7 +386,6 @@ async def check_status(job_id: str):
         
         return progress_data
     except Exception as e:
-        # Not found or error -> fall through to other checks
         pass
 
     # Path C: Scraping Job (Existing)
@@ -480,8 +449,8 @@ async def api_scrap_reviews(request: ScrapRequest, background_tasks: BackgroundT
     
     return {"message": "Scraping started", "job_id": job_id}
 
-@app.post("/api/update-job-status")
-async def api_update_job_status_manual(request: UpdateJobConfigRequest):
+@app.post("/api/update-job-metadata")
+async def api_update_job_metadata_manual(request: UpdateJobConfigRequest):
     """
     Updates the unified job configuration in S3.
     Used for saving resolved App IDs or manual user edits.
