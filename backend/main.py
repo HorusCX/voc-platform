@@ -119,15 +119,24 @@ def task_analyze_website(job_id: str, website: str):
     try:
         result = analyze_url(website, GEMINI_API_KEY)
         
-        # Save result
+        # Initialize job configuration
+        # result is a list where the first item is the main company
+        job_config = {
+            "job_id": job_id,
+            "status": "pending",
+            "created_at": datetime.utcnow().isoformat(),
+            "brands": result # This contains main company and competitors
+        }
+
+        # Save to unified job_config prefix
         s3 = boto3.client('s3', region_name=AWS_REGION)
         s3.put_object(
             Bucket=S3_BUCKET_NAME,
-            Key=f"analysis_results/{job_id}.json",
-            Body=json.dumps(result),
+            Key=f"job_config/{job_id}.json",
+            Body=json.dumps(job_config),
             ContentType='application/json'
         )
-        logger.info(f"✅ Website Analysis complete: {job_id}")
+        logger.info(f"✅ Website Analysis complete & Job Config initialized: {job_id}")
         
     except Exception as e:
         logger.error(f"❌ Website Analysis failed: {e}")
@@ -173,15 +182,33 @@ def task_discover_locations(job_id: str, company_name: str, website: str):
     try:
         locations = discover_maps_links(company_name, website, progress_callback=progress_callback)
         
-        # Save result
+        # Update unified job_config
         s3 = boto3.client('s3', region_name=AWS_REGION)
-        s3.put_object(
-            Bucket=S3_BUCKET_NAME,
-            Key=f"discovery_results/{job_id}.json",
-            Body=json.dumps({"locations": locations}),
-            ContentType='application/json'
-        )
-        logger.info(f"✅ Discovery complete: {job_id}")
+        try:
+            response = s3.get_object(Bucket=S3_BUCKET_NAME, Key=f"job_config/{job_id}.json")
+            job_config = json.loads(response['Body'].read().decode('utf-8'))
+            
+            # Find the company in the brands list and update its locations
+            for brand in job_config.get("brands", []):
+                if brand.get("company_name") == company_name:
+                    brand["google_maps_links"] = locations
+                    break
+            
+            s3.put_object(
+                Bucket=S3_BUCKET_NAME,
+                Key=f"job_config/{job_id}.json",
+                Body=json.dumps(job_config),
+                ContentType='application/json'
+            )
+            logger.info(f"✅ Discovery complete & Job Config updated: {job_id}")
+        except s3.exceptions.NoSuchKey:
+            logger.warning(f"⚠️ Job config not found for {job_id}, saving to legacy discovery_results")
+            s3.put_object(
+                Bucket=S3_BUCKET_NAME,
+                Key=f"discovery_results/{job_id}.json",
+                Body=json.dumps({"locations": locations}),
+                ContentType='application/json'
+            )
     except Exception as e:
         logger.error(f"❌ Discovery failed: {e}")
         # Save error as result so frontend sees it
@@ -244,6 +271,10 @@ class Company(BaseModel):
 class ScrapRequest(BaseModel):
     brands: List[Company]
     job_id: Optional[str] = None
+
+class UpdateJobConfigRequest(BaseModel):
+    job_id: str
+    brands: List[Company]
 
 # --- Endpoints ---
 
@@ -313,7 +344,21 @@ async def check_status(job_id: str):
     
     s3_client = boto3.client('s3', region_name=AWS_REGION)
     
-    # Path A: Website Analysis Result
+    # Path A: Unified Job Config (New source of truth)
+    job_config_key = f"job_config/{job_id}.json"
+    try:
+        response = s3_client.get_object(Bucket=S3_BUCKET_NAME, Key=job_config_key)
+        data = json.loads(response['Body'].read().decode('utf-8'))
+        return {
+            "status": "completed",
+            "result": data.get("brands", data) # Return brands list for frontend compatibility
+        }
+    except s3_client.exceptions.NoSuchKey:
+        pass
+    except Exception as e:
+        logger.error(f"Error checking job config status: {e}")
+
+    # Path B: Legacy Website Analysis Result
     analysis_key = f"analysis_results/{job_id}.json"
     try:
         response = s3_client.get_object(Bucket=S3_BUCKET_NAME, Key=analysis_key)
@@ -434,6 +479,39 @@ async def api_scrap_reviews(request: ScrapRequest, background_tasks: BackgroundT
     logger.info(f"✅ Scraping Job {job_id} started in background")
     
     return {"message": "Scraping started", "job_id": job_id}
+
+@app.post("/api/update-job-config")
+async def api_update_job_config(request: UpdateJobConfigRequest):
+    """
+    Updates the unified job configuration in S3.
+    Used for saving resolved App IDs or manual user edits.
+    """
+    job_id = request.job_id
+    try:
+        s3 = boto3.client('s3', region_name=AWS_REGION)
+        
+        # Try to load existing config to preserve metadata like created_at
+        try:
+            response = s3.get_object(Bucket=S3_BUCKET_NAME, Key=f"job_config/{job_id}.json")
+            job_config = json.loads(response['Body'].read().decode('utf-8'))
+        except s3.exceptions.NoSuchKey:
+            job_config = {"job_id": job_id, "created_at": datetime.utcnow().isoformat()}
+
+        # Update brands (which includes app IDs)
+        job_config["brands"] = [brand.dict() for brand in request.brands]
+        job_config["updated_at"] = datetime.utcnow().isoformat()
+
+        s3.put_object(
+            Bucket=S3_BUCKET_NAME,
+            Key=f"job_config/{job_id}.json",
+            Body=json.dumps(job_config),
+            ContentType='application/json'
+        )
+        logger.info(f"✅ Job Config updated for {job_id}")
+        return {"status": "success", "message": "Job config updated"}
+    except Exception as e:
+        logger.error(f"❌ Failed to update job config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/discover-maps")
 async def api_discover_maps(request: dict, background_tasks: BackgroundTasks):
