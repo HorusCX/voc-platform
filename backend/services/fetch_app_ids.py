@@ -1,5 +1,5 @@
 from google_play_scraper import search
-from app_store_scraper import AppStore
+
 from openai import OpenAI
 import json
 import logging

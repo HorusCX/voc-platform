@@ -2,7 +2,11 @@ import pandas as pd
 from openai import OpenAI
 import json
 import logging
-
+import boto3
+import os
+import io
+import time
+from botocore.exceptions import NoCredentialsError
 
 from services.email_service import send_email_gmail
 
@@ -14,8 +18,6 @@ logger = logging.getLogger(__name__)
 def update_analysis_status(job_id, status, message, processed=0, total=0, error=None, **kwargs):
     if not job_id: return
     
-    import boto3
-    import os
     
     try:
         s3 = boto3.client('s3', region_name=os.getenv("AWS_REGION", "eu-central-1"))
@@ -42,6 +44,60 @@ def update_analysis_status(job_id, status, message, processed=0, total=0, error=
         )
     except Exception as e:
         logger.error(f"Failed to update status in S3 for {job_id}: {e}")
+
+def get_s3_client():
+    return boto3.client(
+        's3', 
+        region_name=os.getenv("AWS_REGION", "eu-central-1"),
+        config=boto3.session.Config(signature_version='s3v4')
+    )
+
+def get_checkpoint_key(job_id):
+    return f"checkpoints/{job_id}.json"
+
+def load_checkpoint(job_id):
+    """
+    Loads intermediate results from S3 if they exist.
+    Returns a list of previously analyzed results or empty list.
+    """
+    if not job_id: return []
+    
+    bucket = os.getenv("S3_BUCKET_NAME", "horus-voc-data-storage-v2-eu")
+    key = get_checkpoint_key(job_id)
+    
+    try:
+        s3 = get_s3_client()
+        response = s3.get_object(Bucket=bucket, Key=key)
+        data = json.loads(response['Body'].read().decode('utf-8'))
+        logger.info(f"🔄 Resuming job {job_id} from checkpoint. Loaded {len(data)} results.")
+        return data
+    except s3.exceptions.NoSuchKey:
+        logger.info(f"No checkpoint found for job {job_id}. Starting fresh.")
+        return []
+    except Exception as e:
+        logger.warning(f"Failed to load checkpoint for {job_id}: {e}")
+        return []
+
+def save_checkpoint(job_id, results):
+    """
+    Saves current list of results to S3.
+    """
+    if not job_id: return
+
+    bucket = os.getenv("S3_BUCKET_NAME", "horus-voc-data-storage-v2-eu")
+    key = get_checkpoint_key(job_id)
+    
+    try:
+        s3 = get_s3_client()
+        s3.put_object(
+            Bucket=bucket,
+            Key=key,
+            Body=json.dumps(results),
+            ContentType='application/json'
+        )
+        logger.info(f"💾 Checkpoint saved for {job_id}: {len(results)} records.")
+    except Exception as e:
+        logger.error(f"Failed to save checkpoint for {job_id}: {e}")
 
 
 def generate_dimensions(reviews_sample, openai_key):
@@ -97,11 +153,6 @@ def analyze_reviews(file_path, dimensions, openai_key, job_id=None, progress_cal
     Reads CSV, batches reviews, and sends to OpenAI for sentiment/topic analysis.
     Merges results back into DataFrame and uploads to S3.
     """
-    import boto3
-    from botocore.exceptions import NoCredentialsError
-    import os
-    from datetime import datetime
-    
     error = None
     try:
         if os.path.exists(file_path):
@@ -131,7 +182,16 @@ def analyze_reviews(file_path, dimensions, openai_key, job_id=None, progress_cal
     if job_id:
         update_analysis_status(job_id, "running", "Starting analysis...", 0, len(df_sample))
     
-    analyzed_results = []
+    # --- RESUME LOGIC ---
+    # Try to load existing progress
+    analyzed_results = load_checkpoint(job_id)
+    
+    # Create a set of processed indices for O(1) lookup
+    processed_indices = {item['index'] for item in analyzed_results}
+    
+    if processed_indices:
+        logger.info(f"Skipping {len(processed_indices)} already processed reviews.")
+    # --------------------
     
     # Prepare dimensions list for prompt
     dims_list = "\n".join([f"- {d['dimension']}" for d in dimensions])
@@ -141,6 +201,10 @@ def analyze_reviews(file_path, dimensions, openai_key, job_id=None, progress_cal
     logger.info(f"Processing {total_reviews} reviews individually...")
     
     for idx, row in df_sample.iterrows():
+        # Skip if already processed
+        if idx in processed_indices:
+            continue
+
         review_num = idx + 1
         
         # Update progress every 5 reviews or on last one
@@ -151,6 +215,10 @@ def analyze_reviews(file_path, dimensions, openai_key, job_id=None, progress_cal
                 update_analysis_status(job_id, "running", msg, review_num, total_reviews)
             if progress_callback:
                 progress_callback(msg)
+        
+        # Checkpoint every 50 reviews
+        if job_id and len(analyzed_results) > 0 and len(analyzed_results) % 50 == 0:
+             save_checkpoint(job_id, analyzed_results)
         
         review_text = row['text']
         
@@ -277,7 +345,7 @@ Remember: Return ONLY the JSON object. No explanations, no markdown code blocks,
     
     
     # Save analyzed CSV locally first
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
     analyzed_filename = f"analyzed_reviews_{timestamp}.csv"
     local_analyzed_path = f"data/{analyzed_filename}"
     
@@ -380,6 +448,13 @@ Remember: Return ONLY the JSON object. No explanations, no markdown code blocks,
                 s3_key=s3_key,
                 s3_bucket=s3_bucket
             )
+            
+            # Clean up checkpoint after successful completion
+            try:
+                s3_client.delete_object(Bucket=s3_bucket, Key=get_checkpoint_key(job_id))
+                logger.info(f"🧹 Removed checkpoint for {job_id} after success.")
+            except Exception as e:
+                logger.warning(f"Failed to delete checkpoint: {e}")
 
         
         return {

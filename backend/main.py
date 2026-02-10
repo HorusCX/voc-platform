@@ -50,9 +50,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# In-memory Job Store (for simplicity, use Redis/DB in prod)
-# With Async worker, this will only track "submission" status locally unless we use a shared DB
-JOBS = {}
+# In-memory Job Store - Removed in favor of S3/File persistence
+# JOBS = {}
 
 # Ensure data directory exists
 os.makedirs("data", exist_ok=True)
@@ -376,37 +375,30 @@ async def check_status(job_id: str):
         pass
 
     # Path C: Scraping Job (Existing)
-    # We check local JOBS dict first (legacy/local support) or S3
-    job = JOBS.get(job_id)
-    if not job:
-        # Check S3 for scraping result
-        s3_key = f"scrapped_data/{job_id}.csv"
+    # Check S3 for scraping result
+    s3_key = f"scrapped_data/{job_id}.csv"
+    try:
+        s3_client.head_object(Bucket=S3_BUCKET_NAME, Key=s3_key)
+        url = generate_presigned_url(s3_key)
+        return {
+            "status": "completed",
+            "message": "Job finished (found in S3)",
+            "s3_key": s3_key,
+            "csv_download_url": url
+        }
+    except:
+        # Check for progress status
         try:
-            s3_client.head_object(Bucket=S3_BUCKET_NAME, Key=s3_key)
-            return {
-                "status": "completed",
-                "message": "Job finished (found in S3)",
-                "s3_key": s3_key,
-                "csv_download_url": generate_presigned_url(s3_key)
-            }
+            progress_key = f"processing_status/{job_id}.json"
+            response = s3_client.get_object(Bucket=S3_BUCKET_NAME, Key=progress_key)
+            progress_data = json.loads(response['Body'].read().decode('utf-8'))
+            return progress_data
         except:
-             # Check for progress status
-             try:
-                progress_key = f"processing_status/{job_id}.json"
-                response = s3_client.get_object(Bucket=S3_BUCKET_NAME, Key=progress_key)
-                progress_data = json.loads(response['Body'].read().decode('utf-8'))
-                return progress_data
-             except:
-                 # If neither found
-                 return {"status": "pending", "message": "Job processing..."}
-    
-    # Refresh presigned URL if s3_key exists (from local JOBS cache)
-    if job.get("s3_key"):
-        url = generate_presigned_url(job["s3_key"])
-        if url:
-             job["csv_download_url"] = url
+            # If neither found
+            return {"status": "pending", "message": "Job processing..."}
              
-    return job
+    # If neither found (should be unreachable given the above returns, but safe fallback)
+    return {"status": "pending", "message": "Job processing..."}
 
 @app.post("/api/appids")
 async def api_resolve_app_ids(companies: List[Company]):

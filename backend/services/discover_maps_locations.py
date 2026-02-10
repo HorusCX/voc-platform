@@ -21,8 +21,8 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # DataForSEO API Configuration (reuse from google_maps.py)
-DATAFORSEO_LOGIN = os.getenv("DATAFORSEO_LOGIN", "info@horuscx.com")
-DATAFORSEO_PASSWORD = os.getenv("DATAFORSEO_PASSWORD", "ae38f0810ccce4ce")
+DATAFORSEO_LOGIN = os.getenv("DATAFORSEO_LOGIN")
+DATAFORSEO_PASSWORD = os.getenv("DATAFORSEO_PASSWORD")
 DATAFORSEO_BASE_URL = "https://api.dataforseo.com/v3"
 
 # Location codes for Middle East/GCC region
