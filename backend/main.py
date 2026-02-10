@@ -433,6 +433,11 @@ async def api_resolve_app_ids(companies: List[Company]):
         logger.error(f"Error resolving app IDs: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to resolve app IDs: {str(e)}")
 
+@app.get("/api/diagnostic/routes")
+async def list_routes():
+    """Diagnostic endpoint to list all registered routes."""
+    return [{"path": route.path, "name": route.name, "methods": list(route.methods)} for route in app.routes]
+
 @app.post("/api/scrap-reviews")
 async def api_scrap_reviews(request: ScrapRequest, background_tasks: BackgroundTasks):
     """
