@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Company } from "@/lib/api";
 import { Card } from "../ui/Card";
-import { Loader2, Play, AlertCircle } from "lucide-react";
+import { Play, AlertCircle } from "lucide-react";
 
 interface StepAppIdsProps {
     initialData: Company[];
@@ -12,8 +12,6 @@ interface StepAppIdsProps {
 
 export function StepAppIds({ initialData, onComplete }: StepAppIdsProps) {
     const [items, setItems] = useState<Company[]>(initialData);
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState<string | null>(null);
 
     const updateItem = (index: number, field: keyof Company, value: string) => {
         setItems(currentItems => {
@@ -76,14 +74,13 @@ export function StepAppIds({ initialData, onComplete }: StepAppIdsProps) {
                     ))}
                 </div>
 
-                {error && <p className="text-sm text-red-500 text-center">{error}</p>}
+
 
                 <button
                     onClick={handleNextStep}
-                    disabled={loading}
                     className="w-full flex items-center justify-center gap-2 bg-primary text-primary-foreground font-semibold py-4 px-6 rounded-full disabled:opacity-50 transition-all hover:shadow-lg"
                 >
-                    {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <>Next <Play className="h-5 w-5" /></>}
+                    Next <Play className="h-5 w-5" />
                 </button>
             </div>
         </Card>

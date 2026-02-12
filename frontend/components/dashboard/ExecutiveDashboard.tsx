@@ -2,8 +2,8 @@
 
 import React from 'react';
 import { DashboardData } from "@/lib/dashboard-utils";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
-import { Smartphone, MapPin, Star, Globe, LayoutGrid } from "lucide-react";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { Smartphone, MapPin, Star, Globe } from "lucide-react";
 
 interface ExecutiveDashboardProps {
     data: DashboardData;
@@ -139,48 +139,46 @@ export function ExecutiveDashboard({ data }: ExecutiveDashboardProps) {
                     })}
                 </div>
             </div>
+
+            {/* Brand Comparison Overview */}
+            {
+                data.brandStats.length > 1 && (
+                    <div className="bg-card rounded-2xl border border-border p-6 shadow-sm overflow-hidden">
+                        <h3 className="text-sm font-semibold text-foreground mb-6 tracking-tight">Brand Comparison</h3>
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-sm text-left">
+                                <thead>
+                                    <tr className="border-b border-border text-xs text-muted-foreground font-medium uppercase tracking-wider">
+                                        <th className="py-3 px-4 pl-0 font-medium">Brand</th>
+                                        <th className="py-3 px-4 font-medium text-right">Reviews</th>
+                                        <th className="py-3 px-4 font-medium text-right">Rating</th>
+                                        <th className="py-3 px-4 font-medium text-right">Neg %</th>
+                                        <th className="py-3 px-4 font-medium text-right">Pos %</th>
+                                        <th className="py-3 px-4 pr-0 font-medium text-right">Net</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-border">
+                                    {data.brandStats.map((brand, idx) => (
+                                        <tr key={idx} className="group hover:bg-muted/50 transition-colors">
+                                            <td className="py-3 px-4 pl-0 font-medium text-card-foreground">{brand.brand}</td>
+                                            <td className="py-3 px-4 text-right text-muted-foreground tabular-nums">{brand.reviews}</td>
+                                            <td className="py-3 px-4 text-right text-muted-foreground tabular-nums">{brand.avgRating.toFixed(2)}</td>
+                                            <td className="py-3 px-4 text-right text-destructive/80 tabular-nums">{brand.negativePercent.toFixed(1)}%</td>
+                                            <td className="py-3 px-4 text-right text-muted-foreground tabular-nums">{brand.positivePercent.toFixed(1)}%</td>
+                                            <td className={`py-3 px-4 pr-0 text-right font-medium tabular-nums ${brand.netSentiment >= 0 ? 'text-foreground' : 'text-destructive'}`}>
+                                                {brand.netSentiment > 0 ? '+' : ''}{brand.netSentiment.toFixed(1)}%
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                )
+            }
+
+            <DimensionPerformanceMatrix data={data} />
         </div>
-
-            {/* Brand Comparison Overview */ }
-    {
-        data.brandStats.length > 1 && (
-            <div className="bg-card rounded-2xl border border-border p-6 shadow-sm overflow-hidden">
-                <h3 className="text-sm font-semibold text-foreground mb-6 tracking-tight">Brand Comparison</h3>
-                <div className="overflow-x-auto">
-                    <table className="w-full text-sm text-left">
-                        <thead>
-                            <tr className="border-b border-border text-xs text-muted-foreground font-medium uppercase tracking-wider">
-                                <th className="py-3 px-4 pl-0 font-medium">Brand</th>
-                                <th className="py-3 px-4 font-medium text-right">Reviews</th>
-                                <th className="py-3 px-4 font-medium text-right">Rating</th>
-                                <th className="py-3 px-4 font-medium text-right">Neg %</th>
-                                <th className="py-3 px-4 font-medium text-right">Pos %</th>
-                                <th className="py-3 px-4 pr-0 font-medium text-right">Net</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-border">
-                            {data.brandStats.map((brand, idx) => (
-                                <tr key={idx} className="group hover:bg-muted/50 transition-colors">
-                                    <td className="py-3 px-4 pl-0 font-medium text-card-foreground">{brand.brand}</td>
-                                    <td className="py-3 px-4 text-right text-muted-foreground tabular-nums">{brand.reviews}</td>
-                                    <td className="py-3 px-4 text-right text-muted-foreground tabular-nums">{brand.avgRating.toFixed(2)}</td>
-                                    <td className="py-3 px-4 text-right text-destructive/80 tabular-nums">{brand.negativePercent.toFixed(1)}%</td>
-                                    <td className="py-3 px-4 text-right text-muted-foreground tabular-nums">{brand.positivePercent.toFixed(1)}%</td>
-                                    <td className={`py-3 px-4 pr-0 text-right font-medium tabular-nums ${brand.netSentiment >= 0 ? 'text-foreground' : 'text-destructive'}`}>
-                                        {brand.netSentiment > 0 ? '+' : ''}{brand.netSentiment.toFixed(1)}%
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        )
-    }
-
-    {/* Dimension Performance by Brand */ }
-    <DimensionPerformanceMatrix data={data} />
-        </div >
     );
 }
 

@@ -133,17 +133,20 @@ test('VoC Full Workflow - Scraping Initiation', async ({ page }) => {
     await analyzeButton.click();
 
     // Wait for Step 2: Competitors
+    console.log('Waiting for Step 2: Confirm Competitors...');
     await expect(page.locator('text=Step 2: Confirm Competitors')).toBeVisible({ timeout: 30000 });
+    console.log('Step 2 visible.');
 
     // 3. Step 2: verify and proceed
     const confirmCompetitorsButton = page.locator('button:has-text("Confirm Competitors")');
+    await expect(confirmCompetitorsButton).toBeVisible();
+    await expect(confirmCompetitorsButton).toBeEnabled();
+    console.log('Clicking Confirm Competitors...');
     await confirmCompetitorsButton.click();
-
-    // Wait for Step 3: App IDs
-    await expect(page.locator('text=Step 3: Verify App IDs & Links')).toBeVisible({ timeout: 30000 });
+    console.log('Clicked Confirm Competitors.');
 
     // 4. Step 3: Verify App IDs
-    await expect(page.locator('text=Step 3: Verify App IDs')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('text=Step 3: Verify App IDs')).toBeVisible({ timeout: 30000 });
     await expect(page.locator('h4:has-text("Calo")')).toBeVisible();
 
     const nextToStep4Button = page.locator('button:has-text("Next")');
@@ -179,7 +182,7 @@ test('VoC Full Workflow - Scraping Initiation', async ({ page }) => {
     // --- VERIFY BUTTON FIX 1 ---
     const generateInsightsButton = page.locator('button:has-text("Analyze Reviews & Generate Insights ⚡")');
     await expect(generateInsightsButton).toBeVisible();
-    await expect(generateInsightsButton).toHaveClass(/bg-indigo-600/);
+    await expect(generateInsightsButton).toHaveClass(/bg-primary/);
 
     // Click it to trigger dimension generation
     await generateInsightsButton.click();
@@ -190,7 +193,7 @@ test('VoC Full Workflow - Scraping Initiation', async ({ page }) => {
     // --- VERIFY BUTTON FIX 2 ---
     const startAnalysisButton = page.locator('button:has-text("Start Analysis & Generate Dashboard 🚀")');
     await expect(startAnalysisButton).toBeVisible();
-    await expect(startAnalysisButton).toHaveClass(/bg-indigo-600/);
+    await expect(startAnalysisButton).toHaveClass(/bg-primary/);
 
     console.log('Scraping initiated AND buttons verified successfully.');
 });

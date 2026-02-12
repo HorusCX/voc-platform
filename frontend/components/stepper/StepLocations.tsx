@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Company, VoCService } from "@/lib/api";
 import { Card } from "../ui/Card";
-import { Loader2, Play, MapPin, Plus, X, Search, AlertCircle } from "lucide-react";
+import { Loader2, Play, MapPin, Plus, X, Search } from "lucide-react";
 
 interface MapsLink {
     name: string;
@@ -20,8 +20,6 @@ interface StepLocationsProps {
 
 export function StepLocations({ initialData, jobId, onComplete }: StepLocationsProps) {
     const [items, setItems] = useState<Company[]>(initialData);
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState<string | null>(null);
 
     // State to track which items are currently discovering maps
     const [discoveringIndices, setDiscoveringIndices] = useState<Set<number>>(new Set());
@@ -114,7 +112,7 @@ export function StepLocations({ initialData, jobId, onComplete }: StepLocationsP
                             ];
 
                             // Remove duplicates just in case
-                            const uniqueLinks = Array.from(new Map(mergedLinks.map((l: any) => [l.name, l])).values());
+                            const uniqueLinks = Array.from(new Map(mergedLinks.map((l: string | MapsLink) => [(typeof l === 'string' ? l : l.name), l])).values());
 
                             updateItem(index, 'google_maps_links', uniqueLinks as MapsLink[]);
                         }
@@ -145,7 +143,7 @@ export function StepLocations({ initialData, jobId, onComplete }: StepLocationsP
                 return newSet;
             });
         }
-    }, [items, updateItem]);
+    }, [items, updateItem, jobId]);
 
     // Auto-discover on mount if links are missing
     useEffect(() => {
@@ -215,7 +213,7 @@ export function StepLocations({ initialData, jobId, onComplete }: StepLocationsP
                     <div className="flex gap-2">
                         <MapPin className="h-5 w-5 shrink-0 text-primary" />
                         <p>
-                            We're automatically discovering Google Maps locations for each brand.
+                            We&apos;re automatically discovering Google Maps locations for each brand.
                             You can also add specific location links manually if needed.
                         </p>
                     </div>
@@ -300,16 +298,13 @@ export function StepLocations({ initialData, jobId, onComplete }: StepLocationsP
                     ))}
                 </div>
 
-                {error && <p className="text-sm text-red-500 text-center">{error}</p>}
-
                 <button
                     onClick={handleNextStep}
-                    disabled={loading || discoveringIndices.size > 0}
+                    disabled={discoveringIndices.size > 0}
                     className="w-full flex items-center justify-center gap-2 bg-primary text-primary-foreground font-semibold py-4 px-6 rounded-full disabled:opacity-50 transition-all hover:shadow-lg"
                 >
-                    {loading ? <Loader2 className="h-5 w-5 animate-spin" /> :
-                        discoveringIndices.size > 0 ? <><Loader2 className="h-5 w-5 animate-spin" /> Processing...</> :
-                            <>Next <Play className="h-5 w-5" /></>}
+                    {discoveringIndices.size > 0 ? <><Loader2 className="h-5 w-5 animate-spin" /> Processing...</> :
+                        <>Next <Play className="h-5 w-5" /></>}
                 </button>
             </div>
         </Card>
