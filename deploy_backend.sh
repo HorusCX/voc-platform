@@ -42,6 +42,7 @@ docker build --platform linux/arm64 --provenance=false -t "$REPO_NAME" .
 # Tag and Push
 echo -e "\n${YELLOW}🏷️  Tagging and Pushing to ECR...${NC}"
 docker tag "$REPO_NAME:latest" "$IMAGE_URI"
+echo "Pushing $IMAGE_URI..."
 docker push "$IMAGE_URI"
 
 echo -e "${GREEN}✅ Docker image built and pushed successfully${NC}"

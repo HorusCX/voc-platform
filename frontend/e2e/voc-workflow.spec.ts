@@ -142,14 +142,31 @@ test('VoC Full Workflow - Scraping Initiation', async ({ page }) => {
     // Wait for Step 3: App IDs
     await expect(page.locator('text=Step 3: Verify App IDs & Links')).toBeVisible({ timeout: 30000 });
 
-    // 4. Step 3: verify data populated (Calo specific or generic)
-    // We expect at least the company name "Calo" to be visible
+    // 4. Step 3: Verify App IDs
+    await expect(page.locator('text=Step 3: Verify App IDs')).toBeVisible({ timeout: 10000 });
     await expect(page.locator('h4:has-text("Calo")')).toBeVisible();
+
+    const nextToStep4Button = page.locator('button:has-text("Next")');
+    await nextToStep4Button.click();
+
+    // 5. Step 4: Discover Locations
+    await expect(page.locator('text=Step 4: Discover Locations')).toBeVisible({ timeout: 10000 });
+
+    // Wait for auto-discovery (polling check-status for discover-maps)
+    // In the mock, it should complete after a few pulses
+    await expect(page.locator('button:has-text("Next")')).toBeEnabled({ timeout: 30000 });
+    const nextToStep5Button = page.locator('button:has-text("Next")');
+    await nextToStep5Button.click();
+
+    // 6. Step 5: Trustpilot Integration
+    // Note: The UI currently has a bug where it says "Step 4: Trustpilot Integration" even though it's step 5
+    await expect(page.locator('text=Trustpilot Integration')).toBeVisible({ timeout: 10000 });
+
+    const trustpilotInput = page.locator('input[placeholder*="trustpilot.com"]');
+    await trustpilotInput.first().fill('https://www.trustpilot.com/review/calo.app');
 
     // Start Scraping
     const startScrapingButton = page.locator('button:has-text("Start Scraping")');
-
-    // Wait for button to be enabled (loading might be true for a split second)
     await expect(startScrapingButton).toBeEnabled();
     await startScrapingButton.click();
 

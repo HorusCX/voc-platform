@@ -56,6 +56,7 @@ export interface DashboardData {
     dimensionStats: DimensionStats[];
     topStrengths: DimensionStats[];
     topWeaknesses: DimensionStats[];
+    platformStats: Array<{ platform: string; count: number; percentage: number }>;
 }
 
 /**
@@ -305,6 +306,36 @@ function getWeekNumber(date: Date): number {
 }
 
 /**
+ * Calculate platform statistics
+ */
+function calculatePlatformStats(reviews: ReviewData[]): Array<{ platform: string; count: number; percentage: number }> {
+    const platformMap = new Map<string, number>();
+    const total = reviews.length;
+
+    reviews.forEach(r => {
+        // Group similar platforms (e.g. "App Store (US)" -> "App Store")
+        let platform = r.platform || 'Unknown';
+        if (platform.includes('App Store')) platform = 'App Store';
+        if (platform.includes('Google Play')) platform = 'Google Play';
+        if (platform.includes('Google Maps')) platform = 'Google Maps';
+        if (platform.includes('Trustpilot')) platform = 'Trustpilot';
+
+        platformMap.set(platform, (platformMap.get(platform) || 0) + 1);
+    });
+
+    const stats: Array<{ platform: string; count: number; percentage: number }> = [];
+    platformMap.forEach((count, platform) => {
+        stats.push({
+            platform,
+            count,
+            percentage: total > 0 ? (count / total) * 100 : 0
+        });
+    });
+
+    return stats.sort((a, b) => b.count - a.count);
+}
+
+/**
  * Process all reviews and generate complete dashboard data
  */
 export function processDashboardData(reviews: ReviewData[]): DashboardData {
@@ -358,5 +389,6 @@ export function processDashboardData(reviews: ReviewData[]): DashboardData {
         dimensionStats,
         topStrengths,
         topWeaknesses,
+        platformStats: calculatePlatformStats(reviews),
     };
 }

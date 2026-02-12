@@ -50,10 +50,10 @@ PRIORITY_COUNTRIES = [
 
 # Configuration
 MAX_LOCATIONS_TARGET = 30  # Stop early if we reach this many locations
-DEFAULT_POLL_ATTEMPTS = 8  # Reduced from 12 for faster failures (~1 min max)
+DEFAULT_POLL_ATTEMPTS = 5  # Reduced from 8 for faster failures (~30s max)
 
 
-def _retry_on_failure(max_retries: int = 2, delay: float = 1.0):
+def _retry_on_failure(max_retries: int = 1, delay: float = 0.5):
     """Decorator to retry failed API calls with exponential backoff"""
     def decorator(func):
         @wraps(func)
@@ -77,7 +77,13 @@ def _retry_on_failure(max_retries: int = 2, delay: float = 1.0):
 
 def _get_auth_header() -> dict:
     """Generate Basic Auth header for DataForSEO API"""
-    credentials = f"{DATAFORSEO_LOGIN}:{DATAFORSEO_PASSWORD}"
+    login = os.getenv("DATAFORSEO_LOGIN")
+    password = os.getenv("DATAFORSEO_PASSWORD")
+    if not login or not password:
+        logger.error("DataForSEO credentials missing in _get_auth_header")
+        return {}
+        
+    credentials = f"{login}:{password}"
     encoded = base64.b64encode(credentials.encode()).decode()
     return {
         "Authorization": f"Basic {encoded}",
@@ -85,7 +91,7 @@ def _get_auth_header() -> dict:
     }
 
 
-@_retry_on_failure(max_retries=2, delay=1.0)
+@_retry_on_failure(max_retries=1, delay=0.5)
 def _create_maps_search_task(keyword: str, location_code: int, depth: int = 100) -> Optional[str]:
     """
     Create a Google Maps SERP search task.
@@ -102,7 +108,8 @@ def _create_maps_search_task(keyword: str, location_code: int, depth: int = 100)
     }]
     
     try:
-        response = requests.post(url, json=payload, headers=_get_auth_header(), timeout=60)
+        # Reduced timeout to 30s to prevent hanging
+        response = requests.post(url, json=payload, headers=_get_auth_header(), timeout=30)
         response.raise_for_status()
         result = response.json()
         
@@ -121,7 +128,7 @@ def _create_maps_search_task(keyword: str, location_code: int, depth: int = 100)
         return None
 
 
-def _poll_for_maps_results(task_id: str, max_attempts: int = DEFAULT_POLL_ATTEMPTS, initial_wait: float = 2.0) -> List[Dict]:
+def _poll_for_maps_results(task_id: str, max_attempts: int = DEFAULT_POLL_ATTEMPTS, initial_wait: float = 1.0) -> List[Dict]:
     """
     Poll for Google Maps SERP task completion.
     Returns list of location items or empty list.
@@ -134,7 +141,8 @@ def _poll_for_maps_results(task_id: str, max_attempts: int = DEFAULT_POLL_ATTEMP
         time.sleep(wait_time)
         
         try:
-            response = requests.get(url, headers=_get_auth_header(), timeout=30)
+            # Short timeout for polling
+            response = requests.get(url, headers=_get_auth_header(), timeout=10)
             result = response.json()
             
             tasks = result.get("tasks", [])
@@ -156,7 +164,7 @@ def _poll_for_maps_results(task_id: str, max_attempts: int = DEFAULT_POLL_ATTEMP
             # Task still processing
             elif status_code in [40601, 40602]:
                 logger.info(f"Task {task_id}: Processing (attempt {attempt + 1}/{max_attempts})")
-                wait_time = min(wait_time * 1.5, 8.0)
+                wait_time = min(wait_time * 1.5, 5.0) # Cap wait time at 5s
             
             # No results found
             elif status_code == 40102:
@@ -165,10 +173,11 @@ def _poll_for_maps_results(task_id: str, max_attempts: int = DEFAULT_POLL_ATTEMP
                 
             else:
                 logger.warning(f"Task {task_id}: Status {status_code} - {task.get('status_message')}")
-                wait_time = min(wait_time * 1.5, 8.0)
+                wait_time = min(wait_time * 1.5, 5.0)
                 
         except Exception as e:
             logger.error(f"Error polling task {task_id}: {e}")
+            # Don't break immediately on network error, try one more time if attempts allow
     
     logger.warning(f"Task {task_id}: Timeout after {max_attempts} attempts")
     return []
@@ -220,6 +229,15 @@ def _parse_maps_items(items: List[Dict], company_name: str) -> List[Dict]:
         # This ensures we always have a working Maps link, not a website URL
         maps_url = f"https://www.google.com/maps/place/?q=place_id:{place_id}"
         
+        if "Calo" in title:
+            # logger.info(f"Full Item for {title}: {item}")
+            pass
+
+        # Debug rating extraction
+        rating_obj = item.get("rating", {})
+        # if rating_obj:
+        #     logger.info(f"Rating Object for {title}: {rating_obj}")
+
         locations.append({
             "place_id": place_id,
             "name": title,
@@ -251,8 +269,14 @@ def discover_maps_links(company_name: str, website: str,
     Returns:
         List of location dicts with: place_id, name, url, address, rating, reviews_count
     """
-    if not DATAFORSEO_LOGIN or not DATAFORSEO_PASSWORD:
-        logger.error("DataForSEO credentials not configured")
+    # Load credentials dynamically to ensure they are available
+    login = os.getenv("DATAFORSEO_LOGIN")
+    password = os.getenv("DATAFORSEO_PASSWORD")
+    
+    if not login or not password:
+        logger.error("❌ DataForSEO credentials not configured (DATAFORSEO_LOGIN/PASSWORD missing)")
+        if progress_callback:
+            progress_callback("Error: Server configuration missing credentials")
         return []
     
     logger.info(f"🔍 DataForSEO Maps Discovery: Searching for '{company_name}' across GCC/MENA region...")
@@ -269,8 +293,15 @@ def discover_maps_links(company_name: str, website: str,
             progress_callback(f"Searching in {country_name}...")
             
         try:
+            # We need to pass credentials to helper functions or ensure they use os.getenv too?
+            # actually _create_maps_search_task uses global DATAFORSEO_LOGIN/PASSWORD
+            # Let's verify _create_maps_search_task uses updated values or refresh them there too.
+            # Ideally we refactor helpers to take credentials, but for now we rely on os.getenv in helpers
+            # IF we update the globals or just trust os.getenv works globally if loaded.
+            
             task_id = _create_maps_search_task(company_name, location_code, depth=50)
             if not task_id:
+                logger.warning(f"Failed to create task for {country_name}")
                 return []
             
             # Use optimized polling attempts

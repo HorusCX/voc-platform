@@ -20,6 +20,7 @@ export interface Company {
     android_id?: string;
     apple_id?: string;
     google_maps_links?: (string | { name: string; url: string; place_id?: string; reviews_count?: number })[];
+    trustpilot_link?: string;
     is_main?: boolean;
 }
 
@@ -76,8 +77,12 @@ export const VoCService = {
         return response.data;
     },
 
-    discoverMapsLinks: async (companyName: string, website: string) => {
-        const response = await api.post<{ job_id: string; status: string }>('/api/discover-maps', { company_name: companyName, website });
+    discoverMapsLinks: async (companyName: string, website: string, jobId?: string) => {
+        const response = await api.post<{ job_id: string; status: string }>('/api/discover-maps', {
+            company_name: companyName,
+            website,
+            job_id: jobId
+        });
         return response.data;
     }
 };

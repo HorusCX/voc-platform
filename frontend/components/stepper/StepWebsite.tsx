@@ -6,7 +6,7 @@ import { ArrowRight, Globe, Loader2 } from "lucide-react";
 import { Card } from "../ui/Card";
 
 interface StepWebsiteProps {
-    onComplete: (data: Company[]) => void;
+    onComplete: (data: Company[], job_id?: string) => void;
 }
 
 export function StepWebsite({ onComplete }: StepWebsiteProps) {
@@ -46,7 +46,7 @@ export function StepWebsite({ onComplete }: StepWebsiteProps) {
                         if (status.status === 'completed' && status.result) {
                             clearInterval(pollInterval);
                             setLoading(false);
-                            onComplete(status.result as Company[]);
+                            onComplete(status.result as Company[], jobId);
                         } else if (status.status === 'error' || status.status === 'failed') {
                             clearInterval(pollInterval);
                             setLoading(false);

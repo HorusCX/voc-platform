@@ -4,10 +4,12 @@ import { useState } from "react";
 import { StepWebsite } from "./StepWebsite";
 import { StepCompetitors } from "./StepCompetitors";
 import { StepAppIds } from "./StepAppIds";
+import { StepLocations } from "./StepLocations";
+import { StepTrustpilot } from "./StepTrustpilot";
 import { SuccessView } from "../results/SuccessView";
 import { Company } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { Globe, Users, Smartphone, Check } from "lucide-react";
+import { Globe, Users, Smartphone, MapPin, Star, Check } from "lucide-react";
 
 export default function VocStepper() {
     const [step, setStep] = useState(1);
@@ -16,8 +18,8 @@ export default function VocStepper() {
         jobId?: string;
     }>({});
 
-    const handleStep1Complete = (companies: Company[]) => {
-        setData((prev) => ({ ...prev, competitors: companies }));
+    const handleStep1Complete = (companies: Company[], job_id?: string) => {
+        setData((prev) => ({ ...prev, competitors: companies, jobId: job_id }));
         setStep(2);
     };
 
@@ -26,9 +28,19 @@ export default function VocStepper() {
         setStep(3);
     };
 
-    const handleStep3Complete = ({ job_id, brands }: { job_id: string; brands: Company[] }) => {
+    const handleStep3Complete = ({ brands }: { brands: Company[] }) => {
+        setData((prev) => ({ ...prev, competitors: brands }));
+        setStep(4);
+    };
+
+    const handleStep4Complete = ({ brands }: { brands: Company[] }) => {
+        setData((prev) => ({ ...prev, competitors: brands }));
+        setStep(5);
+    };
+
+    const handleStep5Complete = ({ job_id, brands }: { job_id: string; brands: Company[] }) => {
         setData((prev) => ({ ...prev, jobId: job_id, competitors: brands }));
-        setStep(4); // 4 = Success/Polling View
+        setStep(6); // 6 = Success/Polling View
     };
 
     const reset = () => {
@@ -41,17 +53,17 @@ export default function VocStepper() {
         <div className="w-full max-w-4xl mx-auto px-4 py-8 relative">
 
             {/* Stepper Header */}
-            {step < 4 && (
-                <div className="flex items-center justify-between mb-16 relative w-full max-w-2xl mx-auto">
+            {step < 6 && (
+                <div className="flex items-center justify-between mb-16 relative w-full max-w-3xl mx-auto">
                     {/* Progress Bar Background */}
                     <div className="absolute left-0 top-1/2 -translate-y-1/2 w-full h-[1px] bg-border -z-10" />
                     {/* Active Progress */}
                     <div
                         className="absolute left-0 top-1/2 -translate-y-1/2 h-[1px] bg-primary -z-10 transition-all duration-500 ease-in-out"
-                        style={{ width: `${((step - 1) / 2) * 100}%` }}
+                        style={{ width: `${((step - 1) / 4) * 100}%` }}
                     />
 
-                    {[1, 2, 3].map((num) => {
+                    {[1, 2, 3, 4, 5].map((num) => {
                         const isActive = step >= num;
 
                         return (
@@ -69,6 +81,8 @@ export default function VocStepper() {
                                             {num === 1 && <Globe className="w-5 h-5" />}
                                             {num === 2 && <Users className="w-5 h-5" />}
                                             {num === 3 && <Smartphone className="w-5 h-5" />}
+                                            {num === 4 && <MapPin className="w-5 h-5" />}
+                                            {num === 5 && <Star className="w-5 h-5" />}
                                         </>
                                     )}
                                 </div>
@@ -79,6 +93,8 @@ export default function VocStepper() {
                                     {num === 1 && "Website"}
                                     {num === 2 && "Competitors"}
                                     {num === 3 && "App IDs"}
+                                    {num === 4 && "Locations"}
+                                    {num === 5 && "Trustpilot"}
                                 </span>
                             </div>
                         );
@@ -104,7 +120,22 @@ export default function VocStepper() {
                     />
                 )}
 
-                {step === 4 && data.jobId && (
+                {step === 4 && data.competitors && (
+                    <StepLocations
+                        initialData={data.competitors}
+                        jobId={data.jobId}
+                        onComplete={handleStep4Complete}
+                    />
+                )}
+
+                {step === 5 && data.competitors && (
+                    <StepTrustpilot
+                        initialData={data.competitors}
+                        onComplete={handleStep5Complete}
+                    />
+                )}
+
+                {step === 6 && data.jobId && (
                     <SuccessView jobId={data.jobId} onReset={reset} />
                 )}
             </div>

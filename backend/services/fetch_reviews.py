@@ -30,6 +30,7 @@ os.makedirs(DATA_DIR, exist_ok=True)
 RUN_GOOGLE_PLAY = True
 RUN_APP_STORE = True
 RUN_GOOGLE_MAPS = True
+RUN_TRUSTPILOT = True
 COUNTRIES = ['sa', 'ae', 'kw', 'bh', 'qa', 'om', 'us']
 S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME", "horus-voc-data-storage-v2-eu")
 AWS_REGION = os.getenv("AWS_REGION", "eu-central-1")
@@ -245,6 +246,12 @@ def run_scraper_service(job_id, brands_list, progress_callback=None):
                     from services.fetch_maps_reviews import scrape_multiple_locations
                     f = executor.submit(scrape_multiple_locations, batch_locations)
                     future_map[f] = {'brand': name, 'type': 'maps_batch', 'locations': [loc['name'] for loc in batch_locations]}
+            
+            trustpilot_link = brand.get('trustpilot_link')
+            if RUN_TRUSTPILOT and trustpilot_link:
+                from services.fetch_trustpilot_reviews import scrape_trustpilot
+                f = executor.submit(scrape_trustpilot, name, trustpilot_link)
+                future_map[f] = {'brand': name, 'type': 'trustpilot'}
 
         # Track all maps link results (including 0)
         maps_link_results = {}  # {brand: {link: count}}
@@ -287,7 +294,7 @@ def run_scraper_service(job_id, brands_list, progress_callback=None):
                         for loc in meta['locations']:
                             maps_link_results[brand_name][loc] = 0
                 
-                if meta['type'] == 'play' or meta['type'] == 'app':
+                if meta['type'] in ['play', 'app', 'trustpilot']:
                     pass # Standard handling
                 
                 if not df.empty:
@@ -336,7 +343,9 @@ def run_scraper_service(job_id, brands_list, progress_callback=None):
             maps_df = brand_df[brand_df['platform'].str.contains('Google Maps', case=False, na=False)]
             maps_count = len(maps_df)
             
-            summary_lines.append(f"{b} - Playstore: {play_count} - App Store: {app_count} - Google Maps: {maps_count}")
+            tp_count = len(brand_df[brand_df['platform'] == 'Trustpilot'])
+            
+            summary_lines.append(f"{b} - Playstore: {play_count} - App Store: {app_count} - Google Maps: {maps_count} - Trustpilot: {tp_count}")
             
             # Add detailed maps breakdown using tracked results (includes 0 results)
             if b in maps_link_results:
