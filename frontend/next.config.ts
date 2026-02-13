@@ -1,15 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  async rewrites() {
-    return [
-      {
-        source: '/api/:path*',
-        destination: process.env.BACKEND_URL
-          ? `${process.env.BACKEND_URL}/api/:path*`
-          : 'http://127.0.0.1:8000/api/:path*', // Default to local backend
-      },
-    ];
+  // Expose env vars to the runtime (especially for SSR/API routes in Amplify)
+  env: {
+    BACKEND_URL: process.env.BACKEND_URL,
   },
 };
 
