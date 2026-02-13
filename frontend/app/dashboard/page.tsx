@@ -66,8 +66,40 @@ export default function DashboardPage() {
     useEffect(() => {
         const params = new URLSearchParams(window.location.search);
         const csvUrl = params.get('csv_url');
+        const jobId = params.get('job_id');
+
         if (csvUrl) {
             loadDataFromUrl(csvUrl);
+        } else if (jobId) {
+            // New Logic: Check status to get fresh URL
+            const checkJobStatus = async () => {
+                setIsLoading(true);
+                try {
+                    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+                    const res = await fetch(`${apiUrl}/api/check-status?job_id=${jobId}`);
+                    if (!res.ok) throw new Error("Failed to check job status");
+
+                    const data = await res.json();
+                    if (data.csv_download_url) {
+                        loadDataFromUrl(data.csv_download_url);
+                    } else if (data.status === 'completed' && data.s3_key) {
+                        // If for some reason url is missing but key exists
+                        setError("Analysis found but download link missing. Please try again.");
+                        setIsLoading(false);
+                    } else if (data.status === 'error') {
+                        throw new Error(data.message || "Analysis failed");
+                    } else {
+                        // Still processing?
+                        setError(`Analysis status: ${data.status}. Please refresh shortly.`);
+                        setIsLoading(false);
+                    }
+                } catch (e) {
+                    console.error("Error fetching job:", e);
+                    setError(e instanceof Error ? e.message : "Failed to load analysis");
+                    setIsLoading(false);
+                }
+            };
+            checkJobStatus();
         }
     }, [loadDataFromUrl]);
 

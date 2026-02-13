@@ -378,14 +378,18 @@ Remember: Return ONLY the JSON object. No explanations, no markdown code blocks,
             ExpiresIn=86400  # 24 hours
         )
         
-        # Generate dashboard URL with auto-load parameter
+        # Generate dashboard URL with persistent job_id
         import urllib.parse
         dashboard_base_url = os.getenv("DASHBOARD_URL", "http://localhost:3000")
-        encoded_download_url = urllib.parse.quote(download_url, safe='')
-        dashboard_link = f"{dashboard_base_url}/dashboard?csv_url={encoded_download_url}"
+        # We use the persistent job_id parameter instead of the expiring csv_url
+        dashboard_link = f"{dashboard_base_url}/dashboard?job_id={job_id}"
         
-        board_link_msg = f"Dashbaord Link: {dashboard_link}"
-        logger.info(f"📥 Download Link: {download_url}")
+        # Generate persistent download URL (redirects to fresh signed URL)
+        api_base_url = os.getenv("API_BASE_URL", "http://localhost:8000") # Ensure this is set in prod
+        persistent_download_url = f"{api_base_url}/api/download-result/{job_id}"
+        
+        board_link_msg = f"Dashboard Link: {dashboard_link}"
+        logger.info(f"📥 Download Link: {persistent_download_url}")
         logger.info(f"📊 {board_link_msg}")
         
         # Send Email Notification
@@ -400,11 +404,11 @@ Remember: Return ONLY the JSON object. No explanations, no markdown code blocks,
                 
                 Analyzed {len(df_sample)} reviews.
                 
-                You can view the interactive dashboard here:
+                You can view the interactive dashboard here (Persistent Link):
                 {dashboard_link}
                 
                 Or download the raw data:
-                {download_url}
+                {persistent_download_url}
                 
                 Best regards,
                 HorusCX VoC Platform
@@ -420,7 +424,7 @@ Remember: Return ONLY the JSON object. No explanations, no markdown code blocks,
                             Open Dashboard
                         </a>
                     </p>
-                    <p>Or <a href="{download_url}">download the raw CSV data</a>.</p>
+                    <p>Or <a href="{persistent_download_url}">download the raw CSV data</a>.</p>
                     <hr>
                     <p style="font-size: 12px; color: #666;">HorusCX VoC Intelligence Platform</p>
                 </body>

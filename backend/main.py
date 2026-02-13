@@ -559,6 +559,55 @@ async def api_final_analysis(request: dict, background_tasks: BackgroundTasks):
         "job_id": job_id
     }
 
+@app.get("/api/download-result/{job_id}")
+async def download_result(job_id: str):
+    """
+    Redirects to a fresh presigned URL for the result CSV.
+    This link is persistent because it generates a NEW token on every request.
+    """
+    try:
+        from fastapi.responses import RedirectResponse
+        
+        # 1. Check Job Config (Unified)
+        s3_client = boto3.client('s3', region_name=AWS_REGION)
+        
+        # Try processing_status first as it contains the specific result keys
+        try:
+            progress_key = f"processing_status/{job_id}.json"
+            response = s3_client.get_object(Bucket=S3_BUCKET_NAME, Key=progress_key)
+            data = json.loads(response['Body'].read().decode('utf-8'))
+            
+            s3_key = data.get("s3_key")
+            if s3_key:
+                url = generate_presigned_url(s3_key)
+                if url:
+                    return RedirectResponse(url=url)
+        except:
+            pass
+            
+        # Fallback to standard locations
+        possible_keys = [
+            f"analyzed_data/analyzed_reviews_{job_id}.csv", # If named by ID
+            f"scrapped_data/{job_id}.csv"
+        ]
+        
+        for key in possible_keys:
+             try:
+                s3_client.head_object(Bucket=S3_BUCKET_NAME, Key=key)
+                url = generate_presigned_url(key)
+                if url:
+                    return RedirectResponse(url=url)
+             except:
+                 continue
+
+        raise HTTPException(status_code=404, detail="Result file not found or expired")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error serving download for {job_id}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
