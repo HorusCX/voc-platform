@@ -1,0 +1,7 @@
+{
+    "status": "completed",
+    "message": "Manual recovery of previous run",
+    "s3_key": "analyzed_data/analyzed_reviews_20260212_193439.csv",
+    "job_id": "recovery_20260212",
+    "task_type": "analysis"
+}

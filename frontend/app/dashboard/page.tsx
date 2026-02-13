@@ -75,9 +75,13 @@ export default function DashboardPage() {
             const checkJobStatus = async () => {
                 setIsLoading(true);
                 try {
-                    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-                    const res = await fetch(`${apiUrl}/api/check-status?job_id=${jobId}`);
-                    if (!res.ok) throw new Error("Failed to check job status");
+                    // Use internal API route to avoid Mixed Content (HTTPS -> HTTP) issues
+                    // The API route (running on server) will proxy to the backend
+                    const res = await fetch(`/api/check-status?job_id=${jobId}`);
+
+                    if (!res.ok) {
+                        throw new Error(`Failed to check job status: ${res.status}`);
+                    }
 
                     const data = await res.json();
                     if (data.csv_download_url) {
