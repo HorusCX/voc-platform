@@ -31,7 +31,7 @@ RUN_GOOGLE_PLAY = True
 RUN_APP_STORE = True
 RUN_GOOGLE_MAPS = True
 RUN_TRUSTPILOT = True
-COUNTRIES = ['sa', 'ae', 'kw', 'bh', 'qa', 'om', 'us']
+COUNTRIES = ['sa', 'ae', 'kw', 'bh', 'qa', 'om', 'us', 'eg']
 S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME", "horus-voc-data-storage-v2-eu")
 AWS_REGION = os.getenv("AWS_REGION", "eu-central-1")
 

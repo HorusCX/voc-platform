@@ -12,6 +12,7 @@ from datetime import datetime
 import urllib.parse
 import logging
 import json
+import time
 
 import boto3
 from botocore.exceptions import NoCredentialsError
@@ -52,14 +53,55 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# In-memory Job Store - Removed in favor of S3/File persistence
-# JOBS = {}
-
 # Ensure data directory exists
 os.makedirs("data", exist_ok=True)
 
 # Mount static files for CSV downloads
 app.mount("/data", StaticFiles(directory="data"), name="data")
+
+def cleanup_old_files():
+    """Removes files from the data/ directory that are older than 48 hours."""
+    data_dir = "data"
+    if not os.path.exists(data_dir):
+        return
+
+    now = time.time()
+    retention_period = 48 * 3600  # 48 hours in seconds
+    
+    logger.info("🧹 Starting scheduled cleanup for old data files...")
+    files_deleted = 0
+    
+    try:
+        for filename in os.listdir(data_dir):
+            file_path = os.path.join(data_dir, filename)
+            if os.path.isfile(file_path):
+                file_age = now - os.path.getmtime(file_path)
+                if file_age > retention_period:
+                    os.remove(file_path)
+                    files_deleted += 1
+                    logger.info(f"🗑️ Deleted old file: {filename}")
+        
+        if files_deleted > 0:
+            logger.info(f"✅ Cleanup finished. {files_deleted} files removed.")
+        else:
+            logger.info("✅ Cleanup finished. No old files found.")
+            
+    except Exception as e:
+        logger.error(f"❌ Error during file cleanup: {e}")
+
+async def run_periodic_cleanup():
+    """Background loop to run cleanup every 24 hours."""
+    while True:
+        cleanup_old_files()
+        # Wait 24 hours (24 * 3600 seconds)
+        await asyncio.sleep(24 * 3600)
+
+@app.on_event("startup")
+async def startup_event():
+    # Start the periodic cleanup task in the background
+    asyncio.create_task(run_periodic_cleanup())
+
+
 
 # Helper for Presigned URL
 def generate_presigned_url(object_name, expiration=3600):
@@ -80,14 +122,11 @@ def generate_presigned_url(object_name, expiration=3600):
         logger.error(f"Error generating presigned URL: {e}")
         return None
 
-    except Exception as e:
-        logger.error(f"Error generating presigned URL: {e}")
-        return None
+
 
 # --- Background Task Wrappers (Migrated from Worker) ---
-
 def update_job_status(job_id: str, status: str, message: str, task_type: str="processing", **kwargs):
-    """Helper to update job status in S3 for frontend polling"""
+    """Helper to update job status in S3 using Object Metadata for optimized polling"""
     try:
         s3 = boto3.client('s3', region_name=AWS_REGION)
         if S3_BUCKET_NAME:
@@ -97,17 +136,29 @@ def update_job_status(job_id: str, status: str, message: str, task_type: str="pr
                 "job_id": job_id, 
                 "task_type": task_type
             }
-            # Add any extra metadata
             payload.update(kwargs)
             
+            # Map metadata to S3 headers (must be strings)
+            metadata = {
+                "status": str(status),
+                "message": str(message),
+                "task_type": str(task_type)
+            }
+            if kwargs.get("s3_key"):
+                metadata["s3_key"] = str(kwargs["s3_key"])
+            
+            # Write to a centralized status key with metadata
             s3.put_object(
                 Bucket=S3_BUCKET_NAME,
-                Key=f"processing_status/{job_id}.json",
+                Key=f"job_status/{job_id}",
                 Body=json.dumps(payload),
-                ContentType='application/json'
+                ContentType='application/json',
+                Metadata=metadata
             )
     except Exception as e:
         logger.error(f"Failed to update status in S3 for {job_id}: {e}")
+
+
 
 def task_analyze_website(job_id: str, website: str):
     logger.info(f"🔍 Starting Background Task: Website Analysis for {job_id}")
@@ -138,11 +189,15 @@ def task_analyze_website(job_id: str, website: str):
             Body=json.dumps(job_config),
             ContentType='application/json'
         )
+        # Optimization: Update centralized status with Metadata
+        update_job_status(job_id, "completed", "Website Analysis complete", task_type="analysis")
         logger.info(f"✅ Website Analysis complete & Job Config initialized: {job_id}")
         
     except Exception as e:
         logger.error(f"❌ Website Analysis failed: {e}")
         update_job_status(job_id, "error", str(e))
+
+
 
 def task_scrap_reviews(job_id: str, brands_list: List[Dict]):
     logger.info(f"🕸️ Starting Background Task: Scraping for {job_id}")
@@ -261,8 +316,6 @@ class MapsLocation(BaseModel):
 
 class Company(BaseModel):
     company_name: Optional[str] = None
-    # name field removed to avoid duplication. Frontend/Backend should use company_name.
-    # Logic in scripts handles fallback if valid keys provided.
     website: Optional[str] = None
     description: Optional[str] = None
     android_id: Optional[str] = None
@@ -342,51 +395,57 @@ async def api_analyze_website(request: WebsiteRequest, background_tasks: Backgro
 
 @app.get("/api/check-status")
 def check_status(job_id: str):
-    # Path A: Unified Job Config (New source of truth)
+    """Optimized status check using S3 Object Metadata (Single HEAD request)"""
     s3_client = boto3.client('s3', region_name=AWS_REGION)
-    job_config_key = f"job_config/{job_id}.json"
+    status_key = f"job_status/{job_id}"
+    
     try:
-        response = s3_client.get_object(Bucket=S3_BUCKET_NAME, Key=job_config_key)
-        data = json.loads(response['Body'].read().decode('utf-8'))
+        # Optimization: Use head_object to get metadata without downloading the body
+        response = s3_client.head_object(Bucket=S3_BUCKET_NAME, Key=status_key)
+        metadata = response.get('Metadata', {})
+        
+        status = metadata.get('status', 'pending')
+        message = metadata.get('message', 'Processing...')
+        
+        if status == "completed":
+            # If completed, we need the result data (brands or file key)
+            obj_response = s3_client.get_object(Bucket=S3_BUCKET_NAME, Key=status_key)
+            data = json.loads(obj_response['Body'].read().decode('utf-8'))
+            
+            # Check for linked unified config if this was an analysis job
+            if metadata.get('task_type') == "analysis":
+                try:
+                    config_resp = s3_client.get_object(Bucket=S3_BUCKET_NAME, Key=f"job_config/{job_id}.json")
+                    config_data = json.loads(config_resp['Body'].read().decode('utf-8'))
+                    return {
+                        "status": "completed",
+                        "result": config_data.get("brands", config_data)
+                    }
+                except:
+                    pass
+            
+            # Handle s3_key/download_url for scraping jobs
+            if data.get("s3_key"):
+                url = generate_presigned_url(data["s3_key"])
+                data["csv_download_url"] = url
+            
+            return {
+                "status": "completed",
+                **data
+            }
+            
         return {
-            "status": "completed",
-            "result": data.get("brands", data) # Return brands list for frontend compatibility
+            "status": status,
+            "message": message,
+            "job_id": job_id,
+            "task_type": metadata.get('task_type', 'unknown')
         }
+        
     except s3_client.exceptions.NoSuchKey:
-        pass
+        return {"status": "pending", "message": "Job initializing..."}
     except Exception as e:
-        logger.error(f"Error checking job config status: {e}")
-
-    # Path B: Check for progress status
-    try:
-        progress_key = f"processing_status/{job_id}.json"
-        response = s3_client.get_object(Bucket=S3_BUCKET_NAME, Key=progress_key)
-        progress_data = json.loads(response['Body'].read().decode('utf-8'))
-        
-        if progress_data.get("s3_key"):
-            url = generate_presigned_url(progress_data["s3_key"])
-            if url:
-                progress_data["csv_download_url"] = url
-        
-        return progress_data
-    except Exception as e:
-        pass
-
-    # Path C: Scraping Job (Fallback)
-    s3_key = f"scrapped_data/{job_id}.csv"
-    try:
-        s3_client.head_object(Bucket=S3_BUCKET_NAME, Key=s3_key)
-        url = generate_presigned_url(s3_key)
-        return {
-            "status": "completed",
-            "message": "Job finished (found in S3)",
-            "s3_key": s3_key,
-            "csv_download_url": url
-        }
-    except:
-        pass
-             
-    return {"status": "pending", "message": "Job processing..."}
+        logger.error(f"Error checking status for {job_id}: {e}")
+        return {"status": "pending", "message": "Fetching status..."}
 
 @app.post("/api/appids")
 async def api_resolve_app_ids(companies: List[Company]):
@@ -478,8 +537,7 @@ async def api_discover_maps(request: dict, background_tasks: BackgroundTasks):
     
     return {"job_id": discovery_job_id, "status": "processing"}
 
-# --- Background Worker Function (Deprecated in Main, moved to worker.py) ---
-# def process_scraping_job(job_id, brands_list): ...
+
 
 @app.post("/api/scrapped-data")
 async def api_scrapped_data2(request: dict):
@@ -535,7 +593,7 @@ async def api_scrapped_data2(request: dict):
         print(f"Error: {e}")
         return {"error": str(e)}
 
-# def process_analysis_task(file_path, dimensions): ...
+
 
 @app.post("/api/final-analysis")
 async def api_final_analysis(request: dict, background_tasks: BackgroundTasks):
@@ -571,10 +629,10 @@ async def download_result(job_id: str):
         # 1. Check Job Config (Unified)
         s3_client = boto3.client('s3', region_name=AWS_REGION)
         
-        # Try processing_status first as it contains the specific result keys
+        # Try job_status first as it contains the specific result keys
         try:
-            progress_key = f"processing_status/{job_id}.json"
-            response = s3_client.get_object(Bucket=S3_BUCKET_NAME, Key=progress_key)
+            status_key = f"job_status/{job_id}"
+            response = s3_client.get_object(Bucket=S3_BUCKET_NAME, Key=status_key)
             data = json.loads(response['Body'].read().decode('utf-8'))
             
             s3_key = data.get("s3_key")

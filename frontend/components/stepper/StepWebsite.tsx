@@ -9,11 +9,13 @@ interface StepWebsiteProps {
     onComplete: (data: Company[], job_id?: string) => void;
 }
 
+// These variables act as the component's memory
 export function StepWebsite({ onComplete }: StepWebsiteProps) {
     const [url, setUrl] = useState("");
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
+    // When "Analyze" button is clicked, prevents from refreshing, checks if the URL is valid.
     const handleSubmit = async (e: React.SyntheticEvent) => {
         e.preventDefault();
         if (!url) return;
@@ -24,59 +26,50 @@ export function StepWebsite({ onComplete }: StepWebsiteProps) {
             setError("Please enter a valid URL (e.g., https://example.com)");
             return;
         }
-
         setLoading(true);
         setError(null);
 
+        // This is the main logic that runs when the user clicks the "Analyze" button.
         try {
             // 1. Submit Job
-            const response = await VoCService.analyzeWebsite(url) as Company[] | { job_id: string };
+            const response = await VoCService.analyzeWebsite(url);
 
-            if ('job_id' in response) {
-                // Async Flow: Poll for result
-                const jobId = response.job_id;
-                let attempts = 0;
-                const maxAttempts = 90; // 180 seconds (3 mins)
+            // Async Flow: Poll for result
+            const jobId = response.job_id;
+            let attempts = 0;
+            const maxAttempts = 90; // 180 seconds (3 mins)
 
-                const pollInterval = setInterval(async () => {
-                    attempts++;
-                    try {
-                        const status = await VoCService.checkStatus(jobId);
+            const pollInterval = setInterval(async () => {
+                attempts++;
+                try {
+                    const status = await VoCService.checkStatus(jobId);
 
-                        if (status.status === 'completed' && status.result) {
-                            clearInterval(pollInterval);
-                            setLoading(false);
-                            onComplete(status.result as Company[], jobId);
-                        } else if (status.status === 'error' || status.status === 'failed') {
-                            clearInterval(pollInterval);
-                            setLoading(false);
-                            setError(status.message || "Analysis failed. Please try again.");
-                        } else if (attempts >= maxAttempts) {
-                            clearInterval(pollInterval);
-                            setLoading(false);
-                            setError("Analysis timed out. Please try again.");
-                        }
-                    } catch (e) {
-                        console.error("Polling error", e);
-                        // Don't stop polling on transient error? or stop?
-                        // For now let's continue unless max attempts
+                    if (status.status === 'completed' && status.result) {
+                        clearInterval(pollInterval);
+                        setLoading(false);
+                        onComplete(status.result as Company[], jobId);
+                    } else if (status.status === 'error' || status.status === 'failed') {
+                        clearInterval(pollInterval);
+                        setLoading(false);
+                        setError(status.message || "Analysis failed. Please try again.");
+                    } else if (attempts >= maxAttempts) {
+                        clearInterval(pollInterval);
+                        setLoading(false);
+                        setError("Analysis timed out. Please try again.");
                     }
-                }, 2000);
-            } else {
-                // Sync Flow (Legacy support or if backend changed back)
-                onComplete(response);
-                setLoading(false);
-            }
+                } catch (e) {
+                    console.error("Polling error", e);
+                }
+            }, 2000);
 
         } catch (err) {
             console.error(err);
             setError("Failed to analyze website. Please check the URL and try again.");
             setLoading(false);
-        } finally {
-            // setLoading(false) moved inside polling logic for async case
         }
     };
 
+    // Display Block Design
     return (
         <Card title="Step 1: Company Website" className="w-full max-w-2xl mx-auto">
             <form onSubmit={handleSubmit} className="space-y-4">

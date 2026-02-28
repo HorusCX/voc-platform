@@ -47,7 +47,7 @@ export interface JobStatus {
 
 export const VoCService = {
     analyzeWebsite: async (website: string) => {
-        const response = await api.post<Company[]>('/api/analyze-website', { website });
+        const response = await api.post<{ job_id: string; status: string }>('/api/analyze-website', { website });
         return response.data;
     },
 

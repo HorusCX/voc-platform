@@ -18,7 +18,6 @@ logger = logging.getLogger(__name__)
 def update_analysis_status(job_id, status, message, processed=0, total=0, error=None, **kwargs):
     if not job_id: return
     
-    
     try:
         s3 = boto3.client('s3', region_name=os.getenv("AWS_REGION", "eu-central-1"))
         bucket = os.getenv("S3_BUCKET_NAME", "horus-voc-data-storage-v2-eu")
@@ -36,11 +35,22 @@ def update_analysis_status(job_id, status, message, processed=0, total=0, error=
             
         # Add extra fields (like dashboard_link, download_url)
         payload.update(kwargs)
+        
+        # Map metadata for optimized polling
+        metadata = {
+            "status": str(status),
+            "message": str(message),
+            "task_type": "analysis"
+        }
+        if kwargs.get("s3_key"):
+            metadata["s3_key"] = str(kwargs["s3_key"])
+        
         s3.put_object(
             Bucket=bucket,
-            Key=f"processing_status/{job_id}.json",
+            Key=f"job_status/{job_id}",
             Body=json.dumps(payload),
-            ContentType='application/json'
+            ContentType='application/json',
+            Metadata=metadata
         )
     except Exception as e:
         logger.error(f"Failed to update status in S3 for {job_id}: {e}")

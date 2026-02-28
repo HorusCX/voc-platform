@@ -2,7 +2,6 @@ from google import genai
 from google.genai import types
 import json
 import logging
-import os
 import re
 
 # Configure logging
@@ -13,9 +12,6 @@ def analyze_url(url: str, gemini_key: str):
     """
     Uses Gemini 3.0 Pro to extract company details and suggested competitors based on the URL.
     """
-    if not url.startswith('http'):
-        url = 'https://' + url
-
     try:
         # Initialize Gemini Client
         client = genai.Client(api_key=gemini_key)
@@ -65,27 +61,13 @@ def analyze_url(url: str, gemini_key: str):
             ],
             config=types.GenerateContentConfig(
                 tools=[types.Tool(google_search=types.GoogleSearch())],
-                response_modalities=["TEXT"], 
+                response_mime_type="application/json", 
             )
         )
         
         # Extract text content
         content = response.text
-        
-        # Enhanced JSON extraction
-        # Try to find JSON block bounded by ```json ... ```
-        json_match = re.search(r'```json\s*(\{.*?\})\s*```', content, re.DOTALL)
-        if json_match:
-            content = json_match.group(1)
-        else:
-            # Try to find any JSON-like block if explicitly marked json wasn't found
-            # Look for first `{` and last `}`
-            start = content.find('{')
-            end = content.rfind('}')
-            if start != -1 and end != -1:
-                content = content[start:end+1]
-            
-        logger.info(f"Cleaned JSON Content (first 200 chars): {content[:200]}...")
+        logger.info(f"Raw JSON Content (first 200 chars): {content[:200]}...")
 
         data = json.loads(content)
         

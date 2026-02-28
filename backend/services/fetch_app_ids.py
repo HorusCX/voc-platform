@@ -1,357 +1,288 @@
-from google_play_scraper import search
-
-from openai import OpenAI
-import json
 import logging
 import concurrent.futures
 import requests
 from bs4 import BeautifulSoup
 import re
+from urllib.parse import unquote
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def search_google_play(query):
-    # Try multiple regions since some apps are region-locked to GCC
-    regions = ['us', 'ae', 'sa']
-    
-    best_result = None
-
-    for country in regions:
-        try:
-            results = search(query, lang='en', country=country)
-            if results:
-                # Iterate through top 3 results to find the best match
-                for result in results[:3]:
-                    title = result.get('title', '').lower()
-                    developer = result.get('developer', '').lower()
-                    app_id = result.get('appId')
-                    query_clean = query.lower()
-                    
-                    # 1. Strong Match: Developer name contains query (e.g. Developer "Calo Inc" for query "Calo")
-                    if query_clean in developer:
-                        logger.info(f"Strong match found (Developer): '{title}' ({app_id}) in {country}")
-                        return app_id
-                        
-                    # 2. Perfect Title Match: Title is exactly the query (e.g. "Calo")
-                    if title == query_clean:
-                        logger.info(f"Strong match found (Exact Title): '{title}' ({app_id}) in {country}")
-                        return app_id
-
-                    # 3. Heuristic: If title starts with query and is short, it's likely good.
-                    # Avoid generic "Calorie Counter" apps if query is "Calo" unless developer matches.
-                    if title.startswith(query_clean) and len(title) < len(query_clean) + 5:
-                         if not best_result: best_result = app_id
-                         
-                # Fallback: specific anti-pattern
-                # If we found nothing strong, but have a result, check if it's generic
-                first = results[0]
-                if not best_result:
-                    title = first.get('title', '').lower()
-                    # If title contains generic words like "calorie counter" but query didn't, be careful
-                    if "calorie counter" in title and "calorie" not in query.lower():
-                        continue # Skip this result, try next country (maybe AE has the real branded app)
-                        
-                    query_words = [w.lower() for w in query.split() if len(w) > 2]
-                    if not query_words or any(w in title for w in query_words):
-                        best_result = first['appId']
-
-        except Exception as e:
-            logger.warning(f"Google Play search failed for {query} in {country}: {e}")
-    
-    return best_result
-
-def search_app_store(query):
-    # Try multiple regions
-    regions = ['us', 'ae', 'sa']
-    
-    best_result = None
-    
-    for country in regions:
-        try:
-            # Use iTunes Search API directly
-            url = "https://itunes.apple.com/search"
-            params = {
-                "term": query,
-                "country": country,
-                "entity": "software",
-                "limit": 3 # Fetch top 3 to check developer
-            }
-            response = requests.get(url, params=params, timeout=10)
-            data = response.json()
-            
-            if data.get("resultCount", 0) > 0:
-                for result in data["results"]:
-                    track_name = result.get("trackName", "").lower()
-                    seller_name = result.get("sellerName", "").lower()
-                    app_id = str(result["trackId"])
-                    query_clean = query.lower()
-
-                    # 1. Strong Match: Developer/Seller name contains query
-                    if query_clean in seller_name:
-                         logger.info(f"Strong match found (Developer): '{track_name}' ({app_id}) in {country}")
-                         return app_id
-                         
-                    # 2. Perfect Title Match
-                    if track_name == query_clean:
-                        logger.info(f"Strong match found (Exact Title): '{track_name}' ({app_id}) in {country}")
-                        return app_id
-
-                    # 3. Fallback logic similar to Google Play
-                    if not best_result:
-                         # Anti-pattern check
-                         if "calorie counter" in track_name and "calorie" not in query_clean:
-                             continue
-                             
-                         query_words = [w.lower() for w in query.split() if len(w) > 2]
-                         if not query_words or any(w in track_name for w in query_words):
-                             best_result = app_id
-                
-        except Exception as e:
-            logger.warning(f"App Store search failed for {query} in {country}: {e}")
-            
-    return best_result
-
 def find_app_links_on_website(url):
-    """
-    Scrapes the given URL for Google Play and App Store links
-    and extracts the IDs. Handles common app redirect services.
-    Returns a dict: {'android_id': str|None, 'apple_id': str|None}
-    """
+    """Scrapes the website for app store links and returns IDs with high resilience."""
     found = {'android_id': None, 'apple_id': None}
-    
-    if not url:
-        return found
-        
-    if not url.startswith('http'):
-        url = 'https://' + url
+    if not url: return found
+    if not url.startswith('http'): url = 'https://' + url
         
     try:
+        # Robust headers to mimic a real browser session
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Referer': 'https://www.google.com/'
         }
-        response = requests.get(url, headers=headers, timeout=10)
-        soup = BeautifulSoup(response.text, 'html.parser')
         
-        # Potential redirect domains or patterns
-        redirect_domains = ['go.link', 'onelink.me', 'page.link', 'app.link', 'adjust.com', 'appsflyer.com', 'bit.ly', 'tinyurl.com']
+        session = requests.Session()
+        soup = None
+        html_content = ""
         
-        links_to_check = []
-
-        # Look for all links
-        for link in soup.find_all('a', href=True):
-            href = link['href']
+        # Some sites block initial request, retry once if needed
+        try:
+            response = session.get(url, headers=headers, timeout=12)
+            if response.status_code == 403:
+                headers['User-Agent'] = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36'
+                response = session.get(url, headers=headers, timeout=12)
             
-            # Check for direct store links
-            # Google Play
-            if 'play.google.com' in href and 'id=' in href:
-                match = re.search(r'id=([a-zA-Z0-9_.]+)$', href.split('&')[0])
-                if match:
-                    id_match = re.search(r'id=([a-zA-Z0-9_.]+)', href)
-                    if id_match:
-                        found['android_id'] = id_match.group(1)
+            # Print debug for verification
+            print(f"DEBUG: Scraped status code: {response.status_code}")
+            
+            if response.status_code == 200:
+                html_content = response.text
+                soup = BeautifulSoup(html_content, 'html.parser')
+        except Exception as e:
+            print(f"DEBUG: Initial request failed for {url}: {e}")
+            logger.warning(f"Initial request failed for {url}: {e}")
+            # Do not return; let response/soup be None so we fall through to headless
+        
+        # Blacklist for generic package IDs that are not the actual app
+        package_blacklist = [
+            'com.google.android.gms', 'com.android.vending', 'com.google.android.apps.maps',
+            'com.apple.mobilesafari', 'com.android.chrome', 'com.facebook.katana',
+            'com.google.android.apps.messaging'
+        ]
 
-            # App Store
-            elif 'apps.apple.com' in href and '/id' in href:
-                match = re.search(r'id(\d+)', href)
+        if soup:
+            # 1. Check meta tags for IDs (Apple Smart App Banners)
+            meta_ios = soup.find('meta', attrs={'name': 'apple-itunes-app'})
+            if meta_ios and meta_ios.get('content'):
+                match = re.search(r'app-id=(\d+)', str(meta_ios['content']))
                 if match:
                     found['apple_id'] = match.group(1)
-            
-            # Check for potential redirects
-            elif any(d in href for d in redirect_domains) or ('app' in href.lower() and ('store' in href.lower() or 'download' in href.lower())):
-                 # Avoid internal links or mailto
-                 if href.startswith('http'):
-                     links_to_check.append(href)
+                    logger.info(f"Found Apple ID in meta tag: {found['apple_id']}")
 
-            if found['android_id'] and found['apple_id']:
-                break
-        
-        # If still missing IDs, check the potential redirect links (limit to top 5 to avoid slowness)
-        if (not found['android_id'] or not found['apple_id']) and links_to_check:
-            for link_url in links_to_check[:5]:
-                try:
-                    # Use GET instead of HEAD as some redirectors block HEAD or behave differently
-                    # Stream=True to avoid downloading large files if it's not a redirect
-                    resp = requests.get(link_url, headers=headers, allow_redirects=True, timeout=5, stream=True)
-                    final_url = resp.url
-                    resp.close()
-                    
-                    # Check if final URL is a store link
-                    if 'play.google.com' in final_url and 'id=' in final_url:
-                        id_match = re.search(r'id=([a-zA-Z0-9_.]+)', final_url)
-                        if id_match and not found['android_id']:
-                            found['android_id'] = id_match.group(1)
-                            
-                    if 'apps.apple.com' in final_url and '/id' in final_url:
-                         match = re.search(r'id(\d+)', final_url)
-                         if match and not found['apple_id']:
-                             found['apple_id'] = match.group(1)
-                             
-                except Exception:
-                    continue
+            # 2. Search defined <a> tags and follow redirects
+            redirect_patterns = [
+                'go.link', 'onelink.me', 'page.link', 'app.link', 'adjust.com', 
+                'appsflyer.com', 'adj.st', 'link.me', 'smart.link', 'branch.io'
+            ]
+            
+            for link in soup.find_all('a', href=True):
+                if found['android_id'] and found['apple_id']: break
+                href = link['href']
                 
-                if found['android_id'] and found['apple_id']:
-                    break
+                # Simple direct patterns
+                if not found['android_id'] and 'play.google.com' in href:
+                    match = re.search(r'id=([a-zA-Z0-9_.]+)', href)
+                    if match: found['android_id'] = match.group(1)
+                elif not found['apple_id'] and ('apps.apple.com' in href or 'itunes.apple.com' in href):
+                    match = re.search(r'id(\d+)', href)
+                    if match: found['apple_id'] = match.group(1)
+                
+                # Tracker/Redirect detection
+                if not found['android_id'] or not found['apple_id']:
+                    decoded_href = unquote(href)
+                    # Check for nested play/apple store URLs in params (Invygo style)
+                    if not found['android_id']:
+                        m = re.search(r'play\.google\.com/store/apps/details\?id=([a-zA-Z0-9_.]+)', decoded_href)
+                        if m: found['android_id'] = m.group(1)
+                    if not found['apple_id']:
+                        m = re.search(r'(?:apps|itunes)\.apple\.com(?:/[a-z]{2})?/app(?:/[^/]+)?/id(\d+)', decoded_href)
+                        if m: found['apple_id'] = m.group(1)
+
+                    # Follow redirect if ID still missing and domain matches OR looks like a local app link (Deliveroo)
+                    is_tracker = any(d in href for d in redirect_patterns)
+                    is_local_app_link = href.startswith('/') and ('/app' in href or 'download' in href or 'platform=' in href)
+                    
+                    if (not found['android_id'] or not found['apple_id']) and (is_tracker or is_local_app_link):
+                        # Handle relative links
+                        if is_local_app_link:
+                            if not url.endswith('/'):
+                                base_url = url
+                            else:
+                                base_url = url[:-1]
+                            # Construct full URL for local redirect, ensuring not to double slash if href starts with /
+                            if href.startswith('/'):
+                                full_redirect_url = f"https://{url.split('/')[2]}{href}"
+                            else:
+                                full_redirect_url = href
+                        else:
+                            full_redirect_url = href
+
+                        for ua in [headers['User-Agent'], 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Mobile Safari/537.36']:
+                            if found['android_id'] and found['apple_id']: break
+                            try:
+                                resp = session.get(full_redirect_url, headers={'User-Agent': ua}, allow_redirects=True, timeout=8)
+                                final_url = unquote(resp.url)
+                            except requests.exceptions.InvalidSchema as e:
+                                final_url = unquote(str(e).split("'")[1] if "'" in str(e) else str(e))
+                            except: continue
+                            
+                            if not found['android_id']:
+                                m = re.search(r'play\.google\.com/store/apps/details\?id=([a-zA-Z0-9_.]+)', final_url)
+                                if not m: m = re.search(r'(?:id|package|android_id|pkg)=([a-zA-Z0-9_.]+)', final_url)
+                                if m and m.group(1) not in package_blacklist and ('.' in m.group(1) or 'play.google.com' in final_url):
+                                    found['android_id'] = m.group(1)
+                            if not found['apple_id']:
+                                m = re.search(r'(?:apps|itunes)\.apple\.com(?:/[a-z]{2})?/app(?:/[^/]+)?/id(\d+)', final_url)
+                                if not m: m = re.search(r'(?:id|apple_id|ios_id)=(\d{9,12})', final_url)
+                                if not m: m = re.search(r'id(\d{9,12})', final_url)
+                                if m: found['apple_id'] = m.group(1)
+
+        # 3. Final Deep Fallback: Search the entire raw HTML/Scripts/JSON
+        if (not found['android_id'] or not found['apple_id']) and html_content:
+            # Search in common places like JSON blobs or scripts
+            if not found['android_id']:
+                android_patterns = [
+                    r'play\.google\.com/store/apps/details\?id=([a-zA-Z0-9_.]+)',
+                    r'"(?:package|appId|packageId|androidId|android_id)":\s*"([a-zA-Z0-9_.]+)"',
+                    r'package=([a-zA-Z0-9_.]+)',
+                    r'id=([a-zA-Z0-9_.]+)', # Generic id= pattern for some trackers
+                    r'com\.[a-zA-Z0-9_]+\.[a-zA-Z0-9_.]+', # Broad package pattern
+                    r'[a-zA-Z0-9_.]+\.[a-zA-Z0-9_.]+\.[a-zA-Z0-9_.]+'
+                ]
+                for p in android_patterns:
+                    matches = re.findall(p, html_content)
+                    for pkg_id in matches:
+                        if pkg_id not in package_blacklist and len(pkg_id.split('.')) >= 2:
+                            # Verify it looks like a package (at least one dot, no spaces, starts with letter)
+                            if re.match(r'^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*(\.[a-z][a-z0-9_.]*)*$', pkg_id):
+                                found['android_id'] = pkg_id
+                                logger.info(f"Deep fallback found Android ID on {url}: {pkg_id}")
+                                break
+                    if found['android_id']: break
+            
+            if not found['apple_id']:
+                apple_patterns = [
+                    r'(?:apps|itunes)\.apple\.com(?:/[a-z]{2})?/app(?:/[^/]+)?/id(\d+)',
+                    r'"(?:appleId|iosId|trackId|itunesId|apple_id|ios_id)":\s*"?(\d+)"?',
+                    r'id(\d{9,12})',
+                    r'apple-itunes-app.*?content=".*?app-id=(\d+)'
+                ]
+                for p in apple_patterns:
+                    matches = re.findall(p, html_content)
+                    for app_id in matches:
+                        if len(app_id) >= 9:
+                            found['apple_id'] = app_id
+                            logger.info(f"Deep fallback found Apple ID on {url}: {app_id}")
+                            break
+                    if found['apple_id']: break
+                    
+        # 4. HEADLESS BROWSER FALLBACK
+        # If still missing IDs, try rendering the page with Playwright
+        logger.debug(f"Found before fallback: {found}")
+        if not found['android_id'] or not found['apple_id']:
+            logger.info(f"Standard scraping failed for {url}. Attempting headless browser fallback...")
+            try:
+                browser_found = fetch_with_browser(url)
+                if not found['android_id'] and browser_found['android_id']:
+                    found['android_id'] = browser_found['android_id']
+                if not found['apple_id'] and browser_found['apple_id']:
+                    found['apple_id'] = browser_found['apple_id']
+            except Exception as e:
+                logger.error(f"Headless browser failed for {url}: {e}")
                 
     except Exception as e:
-        logger.warning(f"Failed to scrape {url} for app links: {e}")
+        logger.warning(f"Failed to scrape {url}: {e}")
         
     return found
 
-def validate_ids_with_llm(company_name, website, android_id, apple_id, openai_key):
-    """
-    Uses OpenAI to validate if the found IDs are correct for the company.
-    """
-    if not android_id and not apple_id:
-        return {'android_id': None, 'apple_id': None}
-        
-    if not openai_key:
-        return {'android_id': android_id, 'apple_id': apple_id}
-
+def fetch_with_browser(url):
+    """Fetches the URL using a headless browser to handle JS-rendered content."""
+    # Import inside function to avoid startup cost if not needed
+    logger.debug("Inside fetch_with_browser")
     try:
-        client = OpenAI(api_key=openai_key)
-        prompt = f"""
-        I found these mobile app IDs for the company "{company_name}" ({website}):
-        - Android ID: {android_id}
-        - Apple ID: {apple_id}
-        
-        Please verify these IDs.
-        1. If an ID is clearly correct (e.g. matches company name), keep it.
-        2. If an ID follows the pattern 'com.companyname' (e.g. com.rightbite for Right Bite), it is almost certainly CORRECT. Keep it.
-        3. If the ID represents a GENERIC app (e.g. "Calorie Counter" by a 3rd party) when I asked for a SPECIFIC brand "Calo", set it to NULL.
-        4. If an ID is definitely WRONG (e.g. a game, a different company, or a generic tool), set it to null.
-        5. If you are unsure, default to keeping the ID.
-        6. If an ID is missing but you know the correct official app ID (especially for GCC region like UAE/KSA), please provide it.
-        
-        Return JSON only: {{ "android_id": "...", "apple_id": "..." }}
-        """
-        
-        response = client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant that validates mobile app IDs. You favor keeping IDs unless they are clearly wrong."},
-                {"role": "user", "content": prompt}
-            ],
-            response_format={ "type": "json_object" }
-        )
-        
-        # content = response.choices[0].message.content
-        content = response.choices[0].message.content
-        data = json.loads(content)
-        return data
-        
-    except Exception as e:
-        logger.warning(f"LLM validation failed for {company_name}: {e}")
-        # Return original if validation fails
-        return {'android_id': android_id, 'apple_id': apple_id}
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        logger.error("Playwright not installed. Skipping headless fallback.")
+        return {'android_id': None, 'apple_id': None}
+    
+    found = {'android_id': None, 'apple_id': None}
+    
+    try:
+        with sync_playwright() as p:
+            # Launch browser (webkit is often more stable on mac/arm64 than chromium)
+            logger.debug("Launching browser (WebKit)...")
+            browser = p.webkit.launch(headless=True)
+            # Use a realistic user agent context
+            context = browser.new_context(
+                user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+                viewport={'width': 1920, 'height': 1080},
+                locale='en-US',
+                timezone_id='Asia/Dubai'
+            )
+            page = context.new_page()
+            
+            try:
+                logger.info(f"Browser navigating to {url}...")
+                # Go to page, wait for network idle to ensure redirection chains finish
+                page.goto(url, wait_until='networkidle', timeout=30000)
+                
+                # Scroll to bottom to trigger lazy loading
+                page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                page.wait_for_timeout(4000) # Wait for potential lazy content
+                
+                # Get final URL after potential frequent JS redirects
+                final_url = page.url
+                content = page.content()
+                
+                logger.info(f"Browser navigated to: {final_url}")
+                logger.info(f"Page Title: {page.title()}")
+                logger.info(f"Content Length: {len(content)}")
+                
+                # Check for bot protection or access denied
+                if "Access Denied" in page.title() or "Security Challenge" in page.title():
+                    logger.warning(f"Bot protection detected on {url}")
+                
+                # Check for IDs in final URL
+                if 'play.google.com' in final_url:
+                    m = re.search(r'id=([a-zA-Z0-9_.]+)', final_url)
+                    if m: found['android_id'] = m.group(1)
+                if 'apps.apple.com' in final_url or 'itunes.apple.com' in final_url:
+                    m = re.search(r'id(\d+)', final_url)
+                    if m: found['apple_id'] = m.group(1)
+                    
+                # Search within the rendered content (using same logic as deep search)
+                if not found['android_id']:
+                    matches = re.findall(r'play\.google\.com/store/apps/details\?id=([a-zA-Z0-9_.]+)', content)
+                    for m in matches:
+                        if m not in ['com.google.android.gms', 'com.android.vending']:
+                            found['android_id'] = m
+                            break
+                
+                if not found['apple_id']:
+                    matches = re.findall(r'(?:apps|itunes)\.apple\.com(?:/[a-z]{2})?/app(?:/[^/]+)?/id(\d+)', content)
+                    if matches: found['apple_id'] = matches[0]
 
-def resolve_app_ids(company_list, openai_key):
-    """
-    Takes a list of company objects and attempts to fill in missing 
-    android_id and apple_id fields.
-    """
+            except Exception as e:
+                logger.error(f"Browser error on {url}: {e}")
+            finally:
+                browser.close()
+                
+    except Exception as e:
+        logger.error(f"Playwright initialization failed: {e}")
+
+    return found
+
+def resolve_app_ids(company_list, openai_key=None):
+    """Main entry point to resolve app IDs for a list of companies using website scraping only."""
     
     def process_company(company):
-        name = company.get('company_name') or company.get('name')
         website = company.get('website')
-        
-        if not name:
-            return company
+        if not website: return company
 
-        # 0. Try scraping website first
-        if website and (not company.get('android_id') or not company.get('apple_id')):
-            scraped_ids = find_app_links_on_website(website)
-            if not company.get('android_id') and scraped_ids['android_id']:
-                company['android_id'] = scraped_ids['android_id']
-            if not company.get('apple_id') and scraped_ids['apple_id']:
-                company['apple_id'] = scraped_ids['apple_id']
+        scraped_ids = find_app_links_on_website(website)
         
-        # Clean name for search
-        search_name = re.sub(r'[^a-zA-Z0-9\s]', ' ', name).strip()
+        company['android_id'] = scraped_ids.get('android_id')
+        company['apple_id'] = scraped_ids.get('apple_id')
         
-        # 1. Try filling Android ID via search if still missing
-        if not company.get('android_id'):
-            found_id = search_google_play(name)
-            if not found_id and search_name != name:
-                 found_id = search_google_play(search_name)
-            if found_id:
-                company['android_id'] = found_id
-                
-        # 2. Try filling Apple ID via search if still missing
-        if not company.get('apple_id'):
-            found_id = search_app_store(name)
-            if not found_id and search_name != name:
-                found_id = search_app_store(search_name)
-            if found_id:
-                company['apple_id'] = found_id
-                
-        # 3. Fallback: Use OpenAI to find IDs if still missing
-        if (not company.get('android_id') or not company.get('apple_id')) and openai_key:
-            try:
-                client = OpenAI(api_key=openai_key)
-                prompt = f"""
-                I need the Android App ID (package name) and iOS App ID for the company "{name}" (Website: {website}).
-                
-                Examples:
-                - Calo: android_id="com.calo.webapp", apple_id="1497894777"
-                - Talabat: android_id="com.talabat", apple_id="450534131"
-                
-                If the company has rebranded (e.g. Kcal Extra -> Kcal Life), use the new app.
-                Return JSON only: {{ "android_id": "...", "apple_id": "..." }}
-                Use null if not found.
-                """
-                
-                response = client.chat.completions.create(
-                    model="gpt-4o",
-                    messages=[
-                        {"role": "system", "content": "You are a helpful assistant that finds mobile app IDs."},
-                        {"role": "user", "content": prompt}
-                    ],
-                    response_format={ "type": "json_object" }
-                )
-                
-                content = response.choices[0].message.content
-                data = json.loads(content)
-                
-                if not company.get('android_id') and data.get('android_id'):
-                    company['android_id'] = data.get('android_id')
-                    
-                if not company.get('apple_id') and data.get('apple_id'):
-                    company['apple_id'] = data.get('apple_id')
-                    
-            except Exception as e:
-                logger.warning(f"OpenAI fallback failed for {name}: {e}")
-
-        # 4. Final Validation: Use LLM to verify found IDs and correct them if needed
-        # Skip validation if IDs look very strong (contain company name) to avoid LLM false negatives
-        strong_android = False
-        strong_apple = False
-        
-        normalized_name = re.sub(r'[^a-zA-Z0-9]', '', name).lower()
-        if company.get('android_id') and normalized_name in company.get('android_id').lower():
-            strong_android = True
-            
-        if (strong_android and company.get('apple_id')) or (strong_android and not company.get('apple_id') and not openai_key):
-             # If we have a strong match and don't need to check apple (or have it), skip LLM
-             pass
-        elif openai_key and (company.get('android_id') or company.get('apple_id')):
-            # Only validate what needs validation
-            val_android = None if strong_android else company.get('android_id')
-            # Always validate apple if present, or if we need to find missing one
-            
-            validated = validate_ids_with_llm(name, website, val_android, company.get('apple_id'), openai_key)
-            
-            if not strong_android:
-                company['android_id'] = validated.get('android_id')
-                
-            # For Apple, trusted search is usually good, but let's allow LLM to fill gaps
-            if not company.get('apple_id') and validated.get('apple_id'):
-                company['apple_id'] = validated.get('apple_id')
-                
         return company
 
-    # Run in parallel to speed up
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
         results = list(executor.map(process_company, company_list))
         
