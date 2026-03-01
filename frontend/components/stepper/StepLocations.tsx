@@ -10,6 +10,7 @@ interface MapsLink {
     url: string;
     place_id?: string;
     reviews_count?: number;
+    country?: string;
 }
 
 interface StepLocationsProps {
@@ -83,13 +84,14 @@ export function StepLocations({ initialData, jobId, onComplete }: StepLocationsP
                             const existingLinks = item.google_maps_links || [];
                             const newLinks: MapsLink[] = newLocations.map((loc: MapsLink | string) => {
                                 if (typeof loc === 'string') {
-                                    return { name: loc, url: '', reviews_count: undefined, place_id: '' };
+                                    return { name: loc, url: '', reviews_count: undefined, place_id: '', country: undefined };
                                 }
                                 return {
                                     name: loc.name || loc.url || '',
                                     url: loc.url || '',
                                     reviews_count: loc.reviews_count ?? undefined,
-                                    place_id: loc.place_id || undefined
+                                    place_id: loc.place_id || undefined,
+                                    country: loc.country || undefined
                                 };
                             }).filter((loc: MapsLink) => loc.name);
 
@@ -105,7 +107,7 @@ export function StepLocations({ initialData, jobId, onComplete }: StepLocationsP
                                         return newLinksMap.get(name)!;
                                     }
                                     // Otherwise keep existing
-                                    return typeof l === 'string' ? { name: l, url: '', reviews_count: undefined, place_id: undefined } : l;
+                                    return typeof l === 'string' ? { name: l, url: '', reviews_count: undefined, place_id: undefined, country: undefined } : l;
                                 }),
                                 // Add new links that were NOT in existing (by name)
                                 ...newLinks.filter((l: MapsLink) => !existingLinks.some((el: string | MapsLink) => (typeof el === 'string' ? el : el.name) === l.name))
@@ -135,8 +137,12 @@ export function StepLocations({ initialData, jobId, onComplete }: StepLocationsP
                     console.error("Polling error:", pollErr);
                 }
             }, 3000); // Poll every 3 seconds
-        } catch (err) {
+        } catch (err: any) {
             console.error("Discovery failed to start", err);
+            setDiscoveryStatuses(prev => ({
+                ...prev,
+                [index]: `Failed: ${err?.response?.data?.detail || err?.response?.data?.error || "Unknown error. Check backend credentials."}`
+            }));
             setDiscoveringIndices(prev => {
                 const newSet = new Set(prev);
                 newSet.delete(index);
@@ -157,7 +163,7 @@ export function StepLocations({ initialData, jobId, onComplete }: StepLocationsP
                 const item = items[i];
                 if (!item.google_maps_links || item.google_maps_links.length === 0) {
                     // Small delay between starts
-                    await new Promise(r => setTimeout(r, 500));
+                    await new Promise(r => setTimeout(r, 1500));
                     handleDiscoverMaps(i);
                 }
             }
@@ -177,7 +183,7 @@ export function StepLocations({ initialData, jobId, onComplete }: StepLocationsP
         );
 
         if (!exists) {
-            updateItem(index, "google_maps_links", [...currentLinks, { name: url, url: url, reviews_count: undefined, place_id: '' }]);
+            updateItem(index, "google_maps_links", [...currentLinks, { name: url, url: url, reviews_count: undefined, place_id: '', country: undefined }]);
         }
         setNewLinkInputs(prev => ({ ...prev, [index]: "" }));
     };
@@ -197,12 +203,13 @@ export function StepLocations({ initialData, jobId, onComplete }: StepLocationsP
 
     const getLinkInfo = (link: string | MapsLink) => {
         if (typeof link === 'string') {
-            return { name: link, url: '', reviews_count: null };
+            return { name: link, url: '', reviews_count: null, country: null };
         }
         return {
             name: link.name || link.url || '',
             url: link.url || '',
-            reviews_count: link.reviews_count ?? null
+            reviews_count: link.reviews_count ?? null,
+            country: link.country ?? null
         };
     };
 
@@ -272,7 +279,8 @@ export function StepLocations({ initialData, jobId, onComplete }: StepLocationsP
                                                             info.name
                                                         )}
                                                     </span>
-                                                    {(info.reviews_count !== null && info.reviews_count !== undefined) && <span className="text-[10px] opacity-60 ml-2">{info.reviews_count} reviews</span>}
+                                                    {info.country && <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded-sm opacity-80 whitespace-nowrap overflow-hidden text-ellipsis max-w-[80px] sm:max-w-none ml-2" title={info.country}>{info.country}</span>}
+                                                    {(info.reviews_count !== null && info.reviews_count !== undefined) && <span className="text-[10px] opacity-60 ml-2 whitespace-nowrap">{info.reviews_count} reviews</span>}
                                                 </div>
                                                 <button onClick={() => removeLink(index, link)} className="text-muted-foreground hover:text-destructive">
                                                     <X className="w-4 h-4" />

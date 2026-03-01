@@ -715,6 +715,9 @@ async def api_discover_maps(request: dict, background_tasks: BackgroundTasks, cu
     if not company_name:
         raise HTTPException(status_code=400, detail="company_name is required")
     
+    if not os.getenv("DATAFORSEO_LOGIN") or not os.getenv("DATAFORSEO_PASSWORD"):
+        raise HTTPException(status_code=500, detail="DataForSEO credentials (DATAFORSEO_LOGIN/PASSWORD) are missing in the environment.")
+    
     # Generate unique Discovery Job ID
     discovery_job_id = f"discovery_{company_name.replace(' ', '_')}_{str(uuid.uuid4())[:8]}"
     

@@ -1,9 +1,6 @@
 """
 Google Maps Location Discovery using DataForSEO API
 
-This module discovers Google Maps business locations using the DataForSEO 
-Google Maps SERP API, replacing the previous Gemini-based approach.
-
 API Documentation: https://docs.dataforseo.com/v3/serp/google/maps/
 """
 
@@ -50,8 +47,7 @@ PRIORITY_COUNTRIES = [
 
 # Configuration
 MAX_LOCATIONS_TARGET = 30  # Stop early if we reach this many locations
-DEFAULT_POLL_ATTEMPTS = 5  # Reduced from 8 for faster failures (~30s max)
-
+DEFAULT_POLL_ATTEMPTS = 10  # Increased to give it ~1.5 minutes to process
 
 def _retry_on_failure(max_retries: int = 1, delay: float = 0.5):
     """Decorator to retry failed API calls with exponential backoff"""
@@ -128,7 +124,7 @@ def _create_maps_search_task(keyword: str, location_code: int, depth: int = 100)
         return None
 
 
-def _poll_for_maps_results(task_id: str, max_attempts: int = DEFAULT_POLL_ATTEMPTS, initial_wait: float = 1.0) -> List[Dict]:
+def _poll_for_maps_results(task_id: str, max_attempts: int = DEFAULT_POLL_ATTEMPTS, initial_wait: float = 2.0) -> List[Dict]:
     """
     Poll for Google Maps SERP task completion.
     Returns list of location items or empty list.
@@ -164,7 +160,7 @@ def _poll_for_maps_results(task_id: str, max_attempts: int = DEFAULT_POLL_ATTEMP
             # Task still processing
             elif status_code in [40601, 40602]:
                 logger.info(f"Task {task_id}: Processing (attempt {attempt + 1}/{max_attempts})")
-                wait_time = min(wait_time * 1.5, 5.0) # Cap wait time at 5s
+                wait_time = min(wait_time * 1.5, 10.0) # Cap wait time at 10s
             
             # No results found
             elif status_code == 40102:
@@ -173,7 +169,7 @@ def _poll_for_maps_results(task_id: str, max_attempts: int = DEFAULT_POLL_ATTEMP
                 
             else:
                 logger.warning(f"Task {task_id}: Status {status_code} - {task.get('status_message')}")
-                wait_time = min(wait_time * 1.5, 5.0)
+                wait_time = min(wait_time * 1.5, 10.0)
                 
         except Exception as e:
             logger.error(f"Error polling task {task_id}: {e}")

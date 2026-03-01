@@ -36,7 +36,7 @@ export interface Company {
     description?: string;
     android_id?: string;
     apple_id?: string;
-    google_maps_links?: (string | { name: string; url: string; place_id?: string; reviews_count?: number })[];
+    google_maps_links?: (string | { name: string; url: string; place_id?: string; reviews_count?: number; country?: string })[];
     trustpilot_link?: string;
     is_main?: boolean;
 }
