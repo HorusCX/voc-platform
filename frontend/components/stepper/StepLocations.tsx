@@ -137,11 +137,12 @@ export function StepLocations({ initialData, jobId, onComplete }: StepLocationsP
                     console.error("Polling error:", pollErr);
                 }
             }, 3000); // Poll every 3 seconds
-        } catch (err: any) {
+        } catch (err) {
             console.error("Discovery failed to start", err);
+            const errorObj = err as { response?: { data?: { detail?: string; error?: string } } };
             setDiscoveryStatuses(prev => ({
                 ...prev,
-                [index]: `Failed: ${err?.response?.data?.detail || err?.response?.data?.error || "Unknown error. Check backend credentials."}`
+                [index]: `Failed: ${errorObj?.response?.data?.detail || errorObj?.response?.data?.error || "Unknown error. Check backend credentials."}`
             }));
             setDiscoveringIndices(prev => {
                 const newSet = new Set(prev);
