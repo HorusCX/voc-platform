@@ -24,9 +24,10 @@ COPY backend/ backend/
 EXPOSE 8000
 
 # Define environment variable
-# Define environment variable
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app/backend
+ENV DATABASE_URL=""
+ENV JWT_SECRET=""
 
 # Default command (can be overridden in ECS Task Definition)
 # By default, runs the API

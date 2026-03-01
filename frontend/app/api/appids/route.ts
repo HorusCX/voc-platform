@@ -13,8 +13,11 @@ export async function POST(req: NextRequest) {
 
         const res = await fetch(targetUrl, {
             method: "POST",
-            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-            body: JSON.stringify(body)
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                ...(req.headers.get("Authorization") && { "Authorization": req.headers.get("Authorization") as string })
+            }, body: JSON.stringify(body)
         });
 
         if (!res.ok) {

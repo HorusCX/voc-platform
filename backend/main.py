@@ -1,7 +1,7 @@
-from fastapi import FastAPI, BackgroundTasks, HTTPException
+from fastapi import FastAPI, BackgroundTasks, HTTPException, Depends
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr, Field
 from typing import List, Optional, Union, Dict
 from dotenv import load_dotenv
 import os
@@ -28,6 +28,14 @@ from services.discover_maps_locations import discover_maps_links
 from services.fetch_app_ids import resolve_app_ids
 from services.fetch_reviews import run_scraper_service
 from services.analyze_reviews import generate_dimensions, analyze_reviews
+
+# Database & Auth
+from database import init_db, get_db, User, CompanyModel, get_user_limits, SessionLocal
+from auth import (
+    hash_password, verify_password, create_access_token,
+    get_current_user, require_admin, is_admin_email
+)
+from sqlalchemy.orm import Session
 
 
 
@@ -98,6 +106,9 @@ async def run_periodic_cleanup():
 
 @app.on_event("startup")
 async def startup_event():
+    # Initialize database tables
+    init_db()
+    logger.info("✅ Database initialized")
     # Start the periodic cleanup task in the background
     asyncio.create_task(run_periodic_cleanup())
 
@@ -332,14 +343,190 @@ class UpdateJobConfigRequest(BaseModel):
     job_id: str
     brands: List[Company]
 
+# Auth Pydantic Models
+class SignupRequest(BaseModel):
+    email: str
+    password: str = Field(min_length=6)
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+class CompanyCreateRequest(BaseModel):
+    company_name: str
+    website: Optional[str] = None
+    description: Optional[str] = None
+    android_id: Optional[str] = None
+    apple_id: Optional[str] = None
+    google_maps_links: Optional[List[Union[str, dict]]] = []
+    trustpilot_link: Optional[str] = None
+    is_main: Optional[bool] = False
+
+class CompanyUpdateRequest(BaseModel):
+    company_name: Optional[str] = None
+    website: Optional[str] = None
+    description: Optional[str] = None
+    android_id: Optional[str] = None
+    apple_id: Optional[str] = None
+    google_maps_links: Optional[List[Union[str, dict]]] = None
+    trustpilot_link: Optional[str] = None
+    is_main: Optional[bool] = None
+
 # --- Endpoints ---
+
+# ==========================================
+# AUTH ENDPOINTS
+# ==========================================
+
+@app.post("/api/auth/signup")
+def auth_signup(request: SignupRequest, db: Session = Depends(get_db)):
+    """Register a new user. Role is 'admin' if email is in admin list, otherwise 'free'."""
+    email = request.email.lower().strip()
+    
+    # Check if user already exists
+    existing = db.query(User).filter(User.email == email).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    
+    # Determine role
+    role = "admin" if is_admin_email(email) else "free"
+    
+    # Create user
+    user = User(
+        email=email,
+        password=hash_password(request.password),
+        role=role
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    
+    logger.info(f"✅ New user registered: {email} (role: {role})")
+    return {"message": "Account created successfully", "role": role}
+
+
+@app.post("/api/auth/login")
+def auth_login(request: LoginRequest, db: Session = Depends(get_db)):
+    """Login and receive a JWT token."""
+    email = request.email.lower().strip()
+    
+    user = db.query(User).filter(User.email == email).first()
+    if not user or not verify_password(request.password, user.password):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    
+    token = create_access_token({"sub": str(user.id), "email": user.email, "role": user.role})
+    
+    logger.info(f"✅ User logged in: {email}")
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "user": user.to_dict()
+    }
+
+
+@app.get("/api/auth/me")
+def auth_me(current_user: User = Depends(get_current_user)):
+    """Get current user info and their limits."""
+    limits = get_user_limits(current_user.role)
+    return {
+        **current_user.to_dict(),
+        "limits": limits
+    }
+
+
+# ==========================================
+# COMPANY CRUD ENDPOINTS
+# ==========================================
+
+@app.get("/api/companies")
+def list_companies(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """List all companies for the current user."""
+    companies = db.query(CompanyModel).filter(CompanyModel.user_id == current_user.id).all()
+    return [c.to_dict() for c in companies]
+
+
+@app.post("/api/companies")
+def create_company(request: CompanyCreateRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Add a new company. Enforces max company limit for free users."""
+    limits = get_user_limits(current_user.role)
+    
+    if limits["max_companies"] is not None:
+        current_count = db.query(CompanyModel).filter(CompanyModel.user_id == current_user.id).count()
+        if current_count >= limits["max_companies"]:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Free plan limit reached: maximum {limits['max_companies']} companies (including main company). Upgrade to add more."
+            )
+    
+    company = CompanyModel(
+        user_id=current_user.id,
+        company_name=request.company_name,
+        website=request.website,
+        description=request.description,
+        android_id=request.android_id,
+        apple_id=request.apple_id,
+        google_maps_links=request.google_maps_links or [],
+        trustpilot_link=request.trustpilot_link,
+        is_main=request.is_main
+    )
+    db.add(company)
+    db.commit()
+    db.refresh(company)
+    
+    return company.to_dict()
+
+
+@app.put("/api/companies/{company_id}")
+def update_company(company_id: int, request: CompanyUpdateRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Update an existing company."""
+    company = db.query(CompanyModel).filter(
+        CompanyModel.id == company_id,
+        CompanyModel.user_id == current_user.id
+    ).first()
+    
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found")
+    
+    # Update only provided fields
+    update_data = request.dict(exclude_unset=True)
+    for key, value in update_data.items():
+        if value is not None:
+            setattr(company, key, value)
+    
+    company.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(company)
+    
+    return company.to_dict()
+
+
+@app.delete("/api/companies/{company_id}")
+def delete_company(company_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Delete a company."""
+    company = db.query(CompanyModel).filter(
+        CompanyModel.id == company_id,
+        CompanyModel.user_id == current_user.id
+    ).first()
+    
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found")
+    
+    db.delete(company)
+    db.commit()
+    
+    return {"message": "Company deleted successfully"}
+
+
+# ==========================================
+# ORIGINAL ENDPOINTS (below)
+# ==========================================
 
 @app.get("/")
 async def root():
     return {"message": "VoC Backend is running"}
 
 @app.get("/api/proxy-csv")
-async def proxy_csv(url: str):
+async def proxy_csv(url: str, current_user: User = Depends(get_current_user)):
     """
     Proxy to fetch CSV content from a URL to bypass CORS.
     """
@@ -384,7 +571,7 @@ async def proxy_csv(url: str):
         raise HTTPException(status_code=500, detail=f"Proxy internal error: {str(e)}")
 
 @app.post("/api/analyze-website")
-async def api_analyze_website(request: WebsiteRequest, background_tasks: BackgroundTasks):
+async def api_analyze_website(request: WebsiteRequest, background_tasks: BackgroundTasks, current_user: User = Depends(get_current_user)):
     job_id = str(uuid.uuid4())
     
     # Add to background tasks
@@ -394,7 +581,7 @@ async def api_analyze_website(request: WebsiteRequest, background_tasks: Backgro
     return {"job_id": job_id, "status": "pending"}
 
 @app.get("/api/check-status")
-def check_status(job_id: str):
+def check_status(job_id: str, current_user: User = Depends(get_current_user)):
     """Optimized status check using S3 Object Metadata (Single HEAD request)"""
     s3_client = boto3.client('s3', region_name=AWS_REGION)
     status_key = f"job_status/{job_id}"
@@ -448,7 +635,7 @@ def check_status(job_id: str):
         return {"status": "pending", "message": "Fetching status..."}
 
 @app.post("/api/appids")
-async def api_resolve_app_ids(companies: List[Company]):
+async def api_resolve_app_ids(companies: List[Company], current_user: User = Depends(get_current_user)):
     """
     Resolve Android and Apple App IDs for a list of companies.
     """
@@ -467,7 +654,7 @@ async def api_resolve_app_ids(companies: List[Company]):
         raise HTTPException(status_code=500, detail=f"Failed to resolve app IDs: {str(e)}")
 
 @app.post("/api/scrap-reviews")
-async def api_scrap_reviews(request: ScrapRequest, background_tasks: BackgroundTasks):
+async def api_scrap_reviews(request: ScrapRequest, background_tasks: BackgroundTasks, current_user: User = Depends(get_current_user)):
     """
     Start scraping reviews for the given brands.
     """
@@ -483,7 +670,7 @@ async def api_scrap_reviews(request: ScrapRequest, background_tasks: BackgroundT
     return {"message": "Scraping started", "job_id": job_id}
 
 @app.post("/api/update-job-metadata")
-def api_update_job_metadata_manual(request: UpdateJobConfigRequest):
+def api_update_job_metadata_manual(request: UpdateJobConfigRequest, current_user: User = Depends(get_current_user)):
     """
     Updates the unified job configuration in S3.
     Used for saving resolved App IDs or manual user edits.
@@ -516,7 +703,7 @@ def api_update_job_metadata_manual(request: UpdateJobConfigRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/discover-maps")
-async def api_discover_maps(request: dict, background_tasks: BackgroundTasks):
+async def api_discover_maps(request: dict, background_tasks: BackgroundTasks, current_user: User = Depends(get_current_user)):
     """
     Start async discovery job for Google Maps locations.
     Returns job_id immediately for polling.
@@ -540,7 +727,7 @@ async def api_discover_maps(request: dict, background_tasks: BackgroundTasks):
 
 
 @app.post("/api/scrapped-data")
-async def api_scrapped_data2(request: dict):
+async def api_scrapped_data2(request: dict, current_user: User = Depends(get_current_user)):
     # n8n workflow "VoC Data Collection" -> trigger 1 of "VoC Analysis"
     # Expected payload via main flow: just needs s3_key or dimensions generation
     
@@ -596,7 +783,7 @@ async def api_scrapped_data2(request: dict):
 
 
 @app.post("/api/final-analysis")
-async def api_final_analysis(request: dict, background_tasks: BackgroundTasks):
+async def api_final_analysis(request: dict, background_tasks: BackgroundTasks, current_user: User = Depends(get_current_user)):
     # Expected: { dimensions: [...], file_key: ... }
     dimensions = request.get("dimensions", [])
     file_key = request.get("file_key")
@@ -618,7 +805,7 @@ async def api_final_analysis(request: dict, background_tasks: BackgroundTasks):
     }
 
 @app.get("/api/download-result/{job_id}")
-async def download_result(job_id: str):
+async def download_result(job_id: str, current_user: User = Depends(get_current_user)):
     """
     Redirects to a fresh presigned URL for the result CSV.
     This link is persistent because it generates a NEW token on every request.

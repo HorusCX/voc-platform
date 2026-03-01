@@ -8,6 +8,23 @@ const api = axios.create({
     },
 });
 
+// Add a request interceptor to inject the JWT token
+api.interceptors.request.use(
+    (config) => {
+        // Only run on the client side
+        if (typeof window !== 'undefined') {
+            const token = localStorage.getItem('access_token');
+            if (token && config.headers) {
+                config.headers['Authorization'] = `Bearer ${token}`;
+            }
+        }
+        return config;
+    },
+    (error) => {
+        return Promise.reject(error);
+    }
+);
+
 // Define Types
 export interface WebsiteRequest {
     website: string;
@@ -83,6 +100,33 @@ export const VoCService = {
             website,
             job_id: jobId
         });
+        return response.data;
+    },
+
+    // --- Auth & User Methods ---
+    signup: async (data: Record<string, string>) => {
+        const response = await api.post('/api/auth/signup', data);
+        return response.data;
+    },
+
+    login: async (data: Record<string, string>) => {
+        const response = await api.post<{ access_token: string; user: { id: number; email: string; role: 'free' | 'admin'; created_at: string; limits?: { max_companies: number | null; max_total_reviews: number | null; } } }>('/api/auth/login', data);
+        return response.data;
+    },
+
+    getCurrentUser: async () => {
+        const response = await api.get<{ id: number; email: string; role: 'free' | 'admin'; created_at: string; limits?: { max_companies: number | null; max_total_reviews: number | null; } }>('/api/auth/me');
+        return response.data;
+    },
+
+    // --- Company Management Methods ---
+    getCompanies: async () => {
+        const response = await api.get('/api/companies');
+        return response.data;
+    },
+
+    createCompany: async (data: Record<string, unknown>) => {
+        const response = await api.post('/api/companies', data);
         return response.data;
     }
 };

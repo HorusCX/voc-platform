@@ -72,6 +72,8 @@ ENV_JSON=$(jq -n \
   --arg dataforseo_login "$DATAFORSEO_LOGIN" \
   --arg dataforseo_pass "$DATAFORSEO_PASSWORD" \
   --arg dashboard_url "$DASHBOARD_URL" \
+  --arg db_url "$DATABASE_URL" \
+  --arg jwt_secret "$JWT_SECRET" \
   '[
     {name: "S3_BUCKET_NAME", value: $s3},
     {name: "AWS_REGION", value: $region},
@@ -79,7 +81,9 @@ ENV_JSON=$(jq -n \
     {name: "GEMINI_API_KEY", value: $gemini},
     {name: "DATAFORSEO_LOGIN", value: $dataforseo_login},
     {name: "DATAFORSEO_PASSWORD", value: $dataforseo_pass},
-    {name: "DASHBOARD_URL", value: $dashboard_url}
+    {name: "DASHBOARD_URL", value: $dashboard_url},
+    {name: "DATABASE_URL", value: $db_url},
+    {name: "JWT_SECRET", value: $jwt_secret}
   ]')
 
 # Register API Task Definition

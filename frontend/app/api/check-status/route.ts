@@ -26,7 +26,9 @@ export async function GET(req: NextRequest) {
         const res = await fetch(targetUrl, {
             method: "GET",
             headers: {
-                'Accept': 'application/json'
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                ...(req.headers.get("Authorization") && { "Authorization": req.headers.get("Authorization") as string })
             }
         });
 

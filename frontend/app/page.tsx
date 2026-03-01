@@ -1,9 +1,36 @@
+"use client";
+
 import VocStepper from "@/components/stepper/VocStepper";
+import UserMenu from "@/components/auth/UserMenu";
+import { useAuth } from "@/contexts/AuthContext";
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
+import { Loader2 } from "lucide-react";
 
 export default function Home() {
+  const { user, isLoading } = useAuth();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!isLoading && !user) {
+      router.push("/login");
+    }
+  }, [user, isLoading, router]);
+
+  if (isLoading || !user) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
+        <p className="text-muted-foreground">Verifying session...</p>
+      </div>
+    );
+  }
+
   return (
-    <main className="min-h-screen flex flex-col items-center py-24 font-sans selection:bg-primary/10">
-      <div className="w-full max-w-3xl px-6 mb-16 text-center">
+    <main className="min-h-screen relative flex flex-col items-center py-24 font-sans selection:bg-primary/10">
+      <UserMenu />
+
+      <div className="w-full max-w-3xl px-6 mb-16 text-center mt-8 sm:mt-0">
         <h1 className="text-4xl sm:text-5xl font-semibold text-foreground mb-4 tracking-tight">
           VoC Intelligence Platform
         </h1>
