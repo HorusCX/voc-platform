@@ -33,9 +33,10 @@ export function PortfolioSwitcher() {
             await refreshPortfolios();
             setNewPortfolioName('');
             setIsCreating(false);
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('Failed to create portfolio:', error);
-            alert(error.response?.data?.detail || 'Failed to create portfolio. You might have reached your plan limit.');
+            const errorMsg = (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail || (error as Error).message || 'Failed to create portfolio. You might have reached your plan limit.';
+            alert(errorMsg);
         } finally {
             setIsSubmitting(false);
         }

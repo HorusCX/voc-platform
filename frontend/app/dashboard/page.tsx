@@ -24,7 +24,7 @@ export default function DashboardPage() {
     const { currentPortfolio } = usePortfolio();
 
     // Filter reviews by selected brands using a server-side request
-    const processReviews = useCallback(async (jobId: string | null = null) => {
+    const processReviews = useCallback(async () => {
         setIsLoading(true);
         try {
             // Convert selected array to comma-separated string, unless empty
@@ -64,15 +64,11 @@ export default function DashboardPage() {
         } finally {
             setIsLoading(false);
         }
-    }, [selectedBrands, availableBrands.length, activeTab]);
+    }, [selectedBrands, availableBrands.length, activeTab, currentPortfolio?.id]);
 
-    // Check for URL parameter on mount and initial load
     useEffect(() => {
-        const params = new URLSearchParams(window.location.search);
-        const jobId = params.get('job_id');
-
-        processReviews(jobId);
-    }, [selectedBrands, processReviews, currentPortfolio?.id]); // We refetch when selectedBrands or portfolio changes
+        processReviews();
+    }, [processReviews]); // We refetch when selectedBrands or portfolio changes
 
     const toggleBrand = (brand: string) => {
         setSelectedBrands(prev =>

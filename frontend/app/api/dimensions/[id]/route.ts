@@ -4,15 +4,16 @@ const BACKEND_URL = process.env.BACKEND_URL;
 
 export async function PUT(
     request: NextRequest,
-    { params }: { params: { id: string } }
+    { params }: { params: Promise<{ id: string }> }
 ) {
     if (!BACKEND_URL) return NextResponse.json({ error: "Backend URL not configured" }, { status: 500 });
 
     try {
+        const { id } = await params;
         const body = await request.json();
         const authHeader = request.headers.get("Authorization");
 
-        const response = await fetch(`${BACKEND_URL}/api/dimensions/${params.id}`, {
+        const response = await fetch(`${BACKEND_URL}/api/dimensions/${id}`, {
             method: "PUT",
             headers: {
                 "Content-Type": "application/json",
@@ -30,14 +31,15 @@ export async function PUT(
 
 export async function DELETE(
     request: NextRequest,
-    { params }: { params: { id: string } }
+    { params }: { params: Promise<{ id: string }> }
 ) {
     if (!BACKEND_URL) return NextResponse.json({ error: "Backend URL not configured" }, { status: 500 });
 
     try {
+        const { id } = await params;
         const authHeader = request.headers.get("Authorization");
 
-        const response = await fetch(`${BACKEND_URL}/api/dimensions/${params.id}`, {
+        const response = await fetch(`${BACKEND_URL}/api/dimensions/${id}`, {
             method: "DELETE",
             headers: {
                 "Content-Type": "application/json",

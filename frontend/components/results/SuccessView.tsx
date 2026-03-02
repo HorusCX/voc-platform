@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { VoCService } from "@/lib/api";
 import { Card } from "../ui/Card";
-import { Loader2, CheckCircle, Send, BarChart3, Download } from "lucide-react";
+import { Loader2, CheckCircle, Send } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface SuccessViewProps {

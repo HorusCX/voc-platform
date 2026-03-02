@@ -29,9 +29,9 @@ function AcceptInviteContent() {
         const verifyToken = async () => {
             try {
                 const data = await VoCService.getInvitation(token);
-                setInvitationData(data);
-            } catch (err: any) {
-                setError(err.response?.data?.detail || 'Invalid or expired invitation token.');
+                setInvitationData(data as { email: string; portfolio_name: string });
+            } catch (err: unknown) {
+                setError((err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Invalid or expired invitation token.');
             } finally {
                 setIsLoading(false);
             }
@@ -51,11 +51,20 @@ function AcceptInviteContent() {
         setError('');
 
         try {
-            const result = await VoCService.acceptInvitation({
+            interface AcceptInvitationResponse {
+                access_token: string;
+                user: {
+                    id: number;
+                    email: string;
+                    full_name: string;
+                };
+            }
+
+            const result = (await VoCService.acceptInvitation({
                 email: invitationData?.email || initialEmail,
                 password,
                 token: token!
-            });
+            })) as AcceptInvitationResponse;
 
             // Store token and user info
             localStorage.setItem('access_token', result.access_token);
@@ -65,8 +74,8 @@ function AcceptInviteContent() {
             setTimeout(() => {
                 router.push('/');
             }, 2000);
-        } catch (err: any) {
-            setError(err.response?.data?.detail || 'Failed to accept invitation.');
+        } catch (err: unknown) {
+            setError((err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || 'Failed to accept invitation.');
         } finally {
             setIsSubmitting(false);
         }
@@ -107,7 +116,7 @@ function AcceptInviteContent() {
                     </div>
                     <h1 className="text-2xl font-bold text-foreground">Join the Team</h1>
                     <p className="text-muted-foreground mt-2">
-                        You've been invited to join <strong>{invitationData?.portfolio_name}</strong>
+                        You&apos;ve been invited to join <strong>{invitationData?.portfolio_name}</strong>
                     </p>
                 </div>
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Company, VoCService } from "@/lib/api";
 import { Card } from "../ui/Card";
 import { Loader2, Plus, Globe, Smartphone, MapPin, Star, Building2, Pencil, Trash2 } from "lucide-react";
@@ -20,7 +20,7 @@ export function SavedCompaniesList({ onStartNew }: SavedCompaniesListProps) {
     const [editingCompany, setEditingCompany] = useState<Company | null>(null);
     const { currentPortfolio } = usePortfolio();
 
-    const fetchCompanies = async () => {
+    const fetchCompanies = useCallback(async () => {
         if (!currentPortfolio?.id) {
             setCompanies([]);
             setIsLoading(false);
@@ -37,11 +37,11 @@ export function SavedCompaniesList({ onStartNew }: SavedCompaniesListProps) {
         } finally {
             setIsLoading(false);
         }
-    };
+    }, [currentPortfolio?.id]);
 
     useEffect(() => {
         fetchCompanies();
-    }, [currentPortfolio?.id]);
+    }, [currentPortfolio?.id, fetchCompanies]);
 
     const handleSaveCompany = async (companyData: Partial<Company>) => {
         try {

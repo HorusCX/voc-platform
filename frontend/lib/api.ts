@@ -208,7 +208,7 @@ export const VoCService = {
     },
 
     getPortfolioMembers: async (portfolioId: number) => {
-        const response = await api.get<{ members: any[], invitations: any[] }>(`/api/portfolios/${portfolioId}/members`);
+        const response = await api.get<{ members: { id: number; email: string; role: string }[], invitations: { id: number; email: string; created_at: string }[] }>(`/api/portfolios/${portfolioId}/members`);
         return response.data;
     }
 };

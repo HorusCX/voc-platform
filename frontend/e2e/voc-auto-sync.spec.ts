@@ -17,7 +17,7 @@ test('VoC Up-to-date Sync and Re-analyze E2E Test', async ({ page }) => {
             page.waitForSelector('text=Your Companies', { timeout: 10000 }),
             page.waitForSelector('input[type="email"]', { timeout: 10000 })
         ]);
-    } catch (e) {
+    } catch {
         // Ignore timeout
     }
 
@@ -43,7 +43,7 @@ test('VoC Up-to-date Sync and Re-analyze E2E Test', async ({ page }) => {
         try {
             await expect(page.locator('text=Scraping in Progress')).toBeVisible({ timeout: 5000 });
             await expect(page.locator('text=Scraping in Progress')).toBeHidden({ timeout: 90000 });
-        } catch (e) {
+        } catch {
             console.log('Progress indicator not found or already completed.');
         }
 
@@ -58,7 +58,7 @@ test('VoC Up-to-date Sync and Re-analyze E2E Test', async ({ page }) => {
             try {
                 await expect(page.locator('text=Scraping in Progress')).toBeVisible({ timeout: 5000 });
                 await expect(page.locator('text=Scraping in Progress')).toBeHidden({ timeout: 90000 });
-            } catch (e) {
+            } catch {
                 console.log('Progress indicator not found or already completed.');
             }
         }

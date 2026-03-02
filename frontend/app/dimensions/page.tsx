@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import UserMenu from "@/components/auth/UserMenu";
 import { Loader2, Plus, Edit2, Trash2, AlertTriangle, RefreshCcw } from "lucide-react";
 import { usePortfolio } from "@/contexts/PortfolioContext";
@@ -28,7 +28,7 @@ export default function DimensionsPage() {
     const { currentPortfolio } = usePortfolio();
 
     // API Helpers
-    const fetchDimensions = async () => {
+    const fetchDimensions = useCallback(async () => {
         if (!currentPortfolio?.id) {
             setDimensions([]);
             setIsLoading(false);
@@ -43,11 +43,11 @@ export default function DimensionsPage() {
         } finally {
             setIsLoading(false);
         }
-    };
+    }, [currentPortfolio?.id]);
 
     useEffect(() => {
         fetchDimensions();
-    }, [currentPortfolio?.id]);
+    }, [currentPortfolio?.id, fetchDimensions]);
 
     const handleSave = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -336,7 +336,7 @@ export default function DimensionsPage() {
             {/* Delete Confirmation Modal */}
             {isDeleteModalOpen && editingDim && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm">
-                    <div className="bg-card border border-border shadow-lg rounded-xl w-full max-w-sm overflow-hidden">
+                    <div className="bg-card border border-border shadow-lg rounded-xl w-full max-sm overflow-hidden">
                         <div className="p-6">
                             <div className="flex items-center gap-3 text-destructive mb-4">
                                 <AlertTriangle className="h-6 w-6" />

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { VoCService, Portfolio } from '@/lib/api';
 import { useAuth } from './AuthContext';
 
@@ -20,7 +20,7 @@ export function PortfolioProvider({ children }: { children: ReactNode }) {
     const [currentPortfolio, setCurrentPortfolio] = useState<Portfolio | null>(null);
     const [isLoading, setIsLoading] = useState(false);
 
-    const fetchPortfolios = async () => {
+    const fetchPortfolios = useCallback(async () => {
         if (!user) return;
         setIsLoading(true);
         try {
@@ -41,7 +41,7 @@ export function PortfolioProvider({ children }: { children: ReactNode }) {
         } finally {
             setIsLoading(false);
         }
-    };
+    }, [user]);
 
     useEffect(() => {
         if (user) {
@@ -50,7 +50,7 @@ export function PortfolioProvider({ children }: { children: ReactNode }) {
             setPortfolios([]);
             setCurrentPortfolio(null);
         }
-    }, [user]);
+    }, [user, fetchPortfolios]);
 
     const setCurrentPortfolioId = (id: number) => {
         const portfolio = portfolios.find(p => p.id === id);

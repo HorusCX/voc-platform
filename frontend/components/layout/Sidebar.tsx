@@ -3,7 +3,6 @@ import { usePathname } from "next/navigation";
 import { Building2, MessageSquare, BarChart3, Menu, X, Tags, UserPlus } from "lucide-react";
 import { useState } from "react";
 import { PortfolioSwitcher } from "../portfolios/PortfolioSwitcher";
-import { TeamManagement } from "./TeamManagement";
 
 const navItems = [
     { name: "Companies", href: "/", icon: Building2 },

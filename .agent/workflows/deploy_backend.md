@@ -2,7 +2,11 @@
 description: Deploy backend changes to AWS ECS Fargate
 ---
 
-1. Build and push the Docker image to ECR
+1. Run backend linting (optional but recommended)
+// turbo
+2. pip install ruff && ruff check backend
+
+3. Build and push the Docker image to ECR
 // turbo
 2. bash deploy_backend.sh
 

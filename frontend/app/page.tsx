@@ -7,8 +7,6 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Loader2, ArrowLeft } from "lucide-react";
 import { SavedCompaniesList } from "@/components/companies/SavedCompaniesList";
-import { SuccessView } from "@/components/results/SuccessView";
-import { Company, VoCService } from "@/lib/api";
 
 export default function Home() {
   const { user, isLoading } = useAuth();

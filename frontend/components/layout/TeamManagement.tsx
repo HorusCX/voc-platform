@@ -28,9 +28,11 @@ export function TeamManagement() {
             setEmail('');
             // Reset status after 3 seconds
             setTimeout(() => setStatus({ type: null, message: '' }), 3000);
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error("❌ Invite failed:", error);
-            const errorMsg = error.response?.data?.error || error.response?.data?.detail || error.message || 'Invitation failed';
+            const errorMsg = (error as { response?: { data?: { error?: string; detail?: string } }; message?: string })?.response?.data?.error ||
+                (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
+                (error as Error).message || 'Invitation failed';
             setStatus({
                 type: 'error',
                 message: errorMsg

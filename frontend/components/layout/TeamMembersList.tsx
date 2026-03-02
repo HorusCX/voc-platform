@@ -9,15 +9,12 @@ interface Member {
     id: number;
     email: string;
     role: string;
-    created_at: string;
 }
 
 interface Invitation {
     id: number;
     email: string;
-    status: string;
     created_at: string;
-    expires_at: string;
 }
 
 export function TeamMembersList() {
@@ -37,7 +34,7 @@ export function TeamMembersList() {
                 setMembers(data.members);
                 setInvitations(data.invitations);
                 setError(null);
-            } catch (err: any) {
+            } catch (err: unknown) {
                 console.error("Failed to fetch team members:", err);
                 setError("Failed to load team members");
             } finally {

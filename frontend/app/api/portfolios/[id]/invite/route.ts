@@ -46,11 +46,11 @@ export async function POST(
 
         console.log("✅ Backend response:", { status: response.status, data });
         return NextResponse.json(data, { status: response.status });
-    } catch (error: any) {
-        console.error("❌ Invite proxy error:", error.message || error);
+    } catch (error: unknown) {
+        console.error("❌ Invite proxy error:", (error as Error).message || error);
         return NextResponse.json({
             detail: "Failed to connect to backend",
-            error: error.message || String(error)
+            error: (error as Error).message || String(error)
         }, { status: 500 });
     }
 }

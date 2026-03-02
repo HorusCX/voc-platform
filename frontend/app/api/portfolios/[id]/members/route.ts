@@ -38,11 +38,11 @@ export async function GET(
         }
 
         return NextResponse.json(data, { status: response.status });
-    } catch (error: any) {
-        console.error("❌ Members proxy error:", error.message || error);
+    } catch (error: unknown) {
+        console.error("❌ Members proxy error:", (error as Error).message || error);
         return NextResponse.json({
             detail: "Failed to connect to backend",
-            error: error.message || String(error)
+            error: (error as Error).message || String(error)
         }, { status: 500 });
     }
 }
