@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Company, VoCService } from "@/lib/api";
 import { Card } from "../ui/Card";
 import { Loader2, Play, Star, ExternalLink } from "lucide-react";
+import { usePortfolio } from "@/contexts/PortfolioContext";
 
 interface StepTrustpilotProps {
     initialData: Company[];
@@ -14,6 +15,7 @@ export function StepTrustpilot({ initialData, onComplete }: StepTrustpilotProps)
     const [items, setItems] = useState<Company[]>(initialData);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const { currentPortfolio } = usePortfolio();
 
     const updateItem = (index: number, value: string) => {
         setItems(currentItems => {
@@ -37,8 +39,12 @@ export function StepTrustpilot({ initialData, onComplete }: StepTrustpilotProps)
         // I need to ensure StepAppIds DOES NOT call startScraping anymore, just passes data!
 
         try {
-            const response = await VoCService.startScraping({ brands: items });
-            onComplete({ job_id: response.job_id, brands: items });
+            const brandsWithPortfolio = items.map(brand => ({
+                ...brand,
+                portfolio_id: currentPortfolio?.id
+            }));
+            const response = await VoCService.startScraping({ brands: brandsWithPortfolio });
+            onComplete({ job_id: response.job_id, brands: brandsWithPortfolio });
         } catch (err) {
             console.error(err);
             setError("Failed to start scraping job. Check backend connection.");

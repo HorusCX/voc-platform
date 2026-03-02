@@ -31,6 +31,7 @@ export interface WebsiteRequest {
 }
 
 export interface Company {
+    id?: number;
     company_name?: string;
     website?: string;
     description?: string;
@@ -39,6 +40,14 @@ export interface Company {
     google_maps_links?: (string | { name: string; url: string; place_id?: string; reviews_count?: number; country?: string })[];
     trustpilot_link?: string;
     is_main?: boolean;
+    portfolio_id?: number;
+}
+
+export interface Portfolio {
+    id: number;
+    name: string;
+    created_at?: string;
+    updated_at?: string;
 }
 
 export interface ScrapRequest {
@@ -58,7 +67,6 @@ export interface JobStatus {
     processed?: number;
     total?: number;
     job_id?: string;
-    email_sent?: boolean;
     [key: string]: unknown;
 }
 
@@ -120,13 +128,87 @@ export const VoCService = {
     },
 
     // --- Company Management Methods ---
-    getCompanies: async () => {
-        const response = await api.get('/api/companies');
+    getCompanies: async (portfolioId?: number): Promise<Company[]> => {
+        const url = portfolioId ? `/api/companies?portfolio_id=${portfolioId}` : '/api/companies';
+        const response = await api.get<Company[]>(url);
         return response.data;
     },
 
     createCompany: async (data: Record<string, unknown>) => {
         const response = await api.post('/api/companies', data);
+        return response.data;
+    },
+
+    updateCompany: async (id: number, data: Partial<Company>) => {
+        const response = await api.put(`/api/companies/${id}`, data);
+        return response.data;
+    },
+
+    deleteCompany: async (id: number) => {
+        const response = await api.delete(`/api/companies/${id}`);
+        return response.data;
+    },
+
+    // --- Dimension Management Methods ---
+    getDimensions: async (portfolioId?: number) => {
+        const url = portfolioId ? `/api/dimensions?portfolio_id=${portfolioId}` : '/api/dimensions';
+        const response = await api.get(url);
+        return response.data;
+    },
+
+    // --- Reviews Methods ---
+    getReviewsPaginated: async (params: { portfolio_id?: number; page: number; page_size: number;[key: string]: unknown }) => {
+        const response = await api.get('/api/user/reviews/paginated', { params });
+        return response.data;
+    },
+
+    getDashboardStats: async (portfolioId?: number, brand?: string) => {
+        const params: Record<string, unknown> = {};
+        if (portfolioId) params.portfolio_id = portfolioId;
+        if (brand) params.brand = brand;
+        const response = await api.get('/api/user/dashboard-stats', { params });
+        return response.data;
+    },
+
+    // --- Portfolio Management Methods ---
+    getPortfolios: async (): Promise<Portfolio[]> => {
+        const response = await api.get<Portfolio[]>('/api/portfolios');
+        return response.data;
+    },
+
+    createPortfolio: async (name: string) => {
+        const response = await api.post<Portfolio>('/api/portfolios', { name });
+        return response.data;
+    },
+
+    updatePortfolio: async (id: number, name: string) => {
+        const response = await api.put<Portfolio>(`/api/portfolios/${id}`, { name });
+        return response.data;
+    },
+
+    deletePortfolio: async (id: number) => {
+        const response = await api.delete(`/api/portfolios/${id}`);
+        return response.data;
+    },
+
+    // --- Invitation Methods ---
+    inviteToPortfolio: async (portfolioId: number, email: string) => {
+        const response = await api.post(`/api/portfolios/${portfolioId}/invite`, { email });
+        return response.data;
+    },
+
+    getInvitation: async (token: string) => {
+        const response = await api.get<{ email: string; portfolio_name: string }>(`/api/invitations/${token}`);
+        return response.data;
+    },
+
+    acceptInvitation: async (data: Record<string, string>) => {
+        const response = await api.post('/api/invitations/accept', data);
+        return response.data;
+    },
+
+    getPortfolioMembers: async (portfolioId: number) => {
+        const response = await api.get<{ members: any[], invitations: any[] }>(`/api/portfolios/${portfolioId}/members`);
         return response.data;
     }
 };

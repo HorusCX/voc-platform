@@ -20,8 +20,8 @@ export function OperationalDashboard({ data }: OperationalDashboardProps) {
         if (!sortConfig) return data.dimensionStats;
 
         return [...data.dimensionStats].sort((a, b) => {
-            const aValue = a[sortConfig.key];
-            const bValue = b[sortConfig.key];
+            const aValue = a[sortConfig.key] as string | number;
+            const bValue = b[sortConfig.key] as string | number;
 
             if (aValue < bValue) {
                 return sortConfig.direction === 'asc' ? -1 : 1;

@@ -61,8 +61,8 @@ def _create_review_tasks(tasks_payload: List[Dict]) -> Dict[str, str]:
             for i, task in enumerate(tasks):
                 if task.get("status_code") == 20100:
                     task_id = task.get("id")
-                    # Track what this task was for (keyword or place_id)
-                    target = tasks_payload[i].get("keyword") or tasks_payload[i].get("place_id") or tasks_payload[i].get("cid")
+                    # Track what this task was for (keyword, place_id, or custom tag)
+                    target = task.get("tag") or tasks_payload[i].get("tag") or tasks_payload[i].get("keyword") or tasks_payload[i].get("place_id") or tasks_payload[i].get("cid")
                     task_mapping[task_id] = target
                     logger.info(f"Task created: {task_id} for '{target}'")
                 else:
@@ -155,7 +155,8 @@ def _parse_reviews(items: list) -> pd.DataFrame:
 
 
 def scrape_google_maps_reviews(keyword_or_url: str, location: str = "Saudi Arabia",
-                                language: str = "English", max_reviews: int = 100) -> pd.DataFrame:
+                                language: str = "English", max_reviews: int = 100,
+                                since_date: Optional[datetime] = None) -> pd.DataFrame:
     """
     Fetch Google Maps reviews using DataForSEO API.
     Main entry point for single location requests.
@@ -180,25 +181,41 @@ def scrape_google_maps_reviews(keyword_or_url: str, location: str = "Saudi Arabi
         return pd.DataFrame()
     
     df = _parse_reviews(items)
-    return _apply_date_filter(df)
+    return _apply_date_filter(df, since_date)
 
 
 def _prepare_payload_item(target: str, location: str, language: str, max_reviews: int) -> Dict:
     """Helper to prepare a single task payload item"""
+    import urllib.parse
+    import re
+    
     payload = {
         "language_name": language,
         "location_name": location,
         "depth": max(300, max_reviews),
-        "sort_by": "newest"
+        "sort_by": "newest",
+        "tag": target
     }
+
+    # Resolve shortlinks
+    if "maps.app.goo.gl" in target or "goo.gl" in target or "g.page" in target:
+        try:
+            resp = requests.head(target, allow_redirects=True, timeout=10)
+            target = resp.url
+        except Exception as e:
+            logger.error(f"Failed to resolve shortlink {target}: {e}")
+
+    # CID Extraction
+    cid_match = re.search(r'0x[0-9a-f]+:(0x[0-9a-f]+)', target)
+    if cid_match:
+        payload["cid"] = str(int(cid_match.group(1), 16))
+        return payload
 
     # Extract info from URL/string
     place_id_found = None
     keyword = target
 
     if any(s in target for s in ["google.com/maps", "goo.gl", "maps.app.goo.gl"]):
-        import urllib.parse
-        import re
         parsed = urllib.parse.urlparse(target)
         params = urllib.parse.parse_qs(parsed.query)
         
@@ -228,17 +245,23 @@ def _prepare_payload_item(target: str, location: str, language: str, max_reviews
     return payload
 
 
-def _apply_date_filter(df: pd.DataFrame) -> pd.DataFrame:
-    """Filter DataFrame for last 6 months of reviews"""
+def _apply_date_filter(df: pd.DataFrame, since_date: Optional[datetime] = None) -> pd.DataFrame:
+    """Filter DataFrame for reviews since the specified date or last 6 months by default"""
     if df.empty or 'date' not in df.columns:
         return df
         
     try:
-        six_months_ago = pd.Timestamp(datetime.now() - pd.DateOffset(months=6))
+        if since_date:
+            limit_date = pd.Timestamp(since_date)
+            logger.info(f"--- 📅 Incremental Sync: Filtering reviews since {limit_date} ---")
+        else:
+            limit_date = pd.Timestamp(datetime.now() - pd.DateOffset(months=6))
+            logger.info(f"--- 📅 Date Filter: Defaulting to last 6 months (since {limit_date}) ---")
+            
         df['date'] = pd.to_datetime(df['date'])
         original_count = len(df)
-        df = df[df['date'] >= six_months_ago]
-        logger.info(f"--- 📅 Date Filter: Kept {len(df)}/{original_count} reviews ---")
+        df = df[df['date'] >= limit_date]
+        logger.info(f"--- 📅 Date Filter Result: Kept {len(df)}/{original_count} reviews ---")
         df['date'] = df['date'].dt.strftime('%Y-%m-%d')
         return df
     except Exception as e:
@@ -246,7 +269,8 @@ def _apply_date_filter(df: pd.DataFrame) -> pd.DataFrame:
         return df
 
 
-def scrape_multiple_locations(locations: list, max_reviews_per_location: int = 100) -> pd.DataFrame:
+def scrape_multiple_locations(locations: list, max_reviews_per_location: int = 100,
+                                since_date: Optional[datetime] = None) -> pd.DataFrame:
     """
     Fetch reviews for multiple locations efficiently using batch tasks and parallel polling.
     """
@@ -257,7 +281,7 @@ def scrape_multiple_locations(locations: list, max_reviews_per_location: int = 1
     
     payloads = []
     for loc in locations:
-        target = loc.get("url") or loc.get("name") or loc.get("keyword")
+        target = loc.get("keyword") or loc.get("url") or loc.get("name")
         if not target: continue
         
         payloads.append(_prepare_payload_item(
@@ -283,7 +307,7 @@ def scrape_multiple_locations(locations: list, max_reviews_per_location: int = 1
         items = _poll_for_results(task_id)
         if not items: return pd.DataFrame()
         df = _parse_reviews(items)
-        df = _apply_date_filter(df)
+        df = _apply_date_filter(df, since_date)
         if not df.empty:
             df["source_location"] = target_name
         return df
@@ -307,6 +331,7 @@ def scrape_multiple_locations(locations: list, max_reviews_per_location: int = 1
     return pd.DataFrame()
 
 
-def scrape_google_maps_by_place_id(place_id: str, max_reviews: int = 100) -> pd.DataFrame:
+def scrape_google_maps_by_place_id(place_id: str, max_reviews: int = 100,
+                                    since_date: Optional[datetime] = None) -> pd.DataFrame:
     """Drop-in for specific place ID scraping"""
-    return scrape_google_maps_reviews(f"place_id:{place_id}", max_reviews=max_reviews)
+    return scrape_google_maps_reviews(f"place_id:{place_id}", max_reviews=max_reviews, since_date=since_date)

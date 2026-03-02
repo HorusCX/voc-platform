@@ -283,14 +283,18 @@ function DimensionPerformanceMatrix({ data }: { data: DashboardData }) {
                             <tr key={idx} className="group hover:bg-muted/50">
                                 <td className="py-3 px-4 pl-0 font-medium text-foreground">{dim.dimension}</td>
                                 {data.brandStats.map((brand, brandIdx) => {
-                                    const value = viewMode === 'positive' ? dim.positivePercent : dim.netSentiment;
-                                    // Logic usually requires getting specific brand value for dimension,
-                                    // but assuming DashboardData structure flattens this effectively or we use overall for now.
-                                    // *Correction*: detailed brand breakdown might need richer data structure,
-                                    // but keeping logic same as original file for now, just styling.
+                                    const bStats = dim.brandStats?.[brand.brand];
 
+                                    if (!bStats) {
+                                        return (
+                                            <td key={brandIdx} className="py-3 px-4 text-center tabular-nums text-muted-foreground">
+                                                -
+                                            </td>
+                                        );
+                                    }
+
+                                    const value = viewMode === 'positive' ? bStats.positivePercent : bStats.netSentiment;
                                     const isPositive = value >= 0;
-                                    // const opacity = Math.min(Math.abs(value) / 100 + 0.1, 1); // This line was removed in the instruction
 
                                     return (
                                         <td key={brandIdx} className="py-3 px-4 text-center tabular-nums">

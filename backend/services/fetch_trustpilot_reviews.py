@@ -8,7 +8,7 @@ import re
 
 logger = logging.getLogger(__name__)
 
-def scrape_trustpilot(brand_name, trustpilot_link):
+def scrape_trustpilot(brand_name, trustpilot_link, since_date=None):
     if not trustpilot_link:
         return pd.DataFrame()
 
@@ -25,7 +25,13 @@ def scrape_trustpilot(brand_name, trustpilot_link):
     all_reviews = []
     page = 1
     max_pages = 20 # Reasonable limit
-    six_months_ago = pd.Timestamp(datetime.now() - pd.DateOffset(months=6))
+    
+    if since_date:
+        limit_date = pd.Timestamp(since_date)
+        logger.info(f"--- 📅 Incremental Sync: Filtering reviews since {limit_date} ---")
+    else:
+        limit_date = pd.Timestamp(datetime.now() - pd.DateOffset(months=6))
+        logger.info(f"--- 📅 Date Filter: Defaulting to last 6 months (since {limit_date}) ---")
     
     headers = {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -87,7 +93,7 @@ def scrape_trustpilot(brand_name, trustpilot_link):
                     review_date = pd.to_datetime(time_elem.get('datetime'))
 
                     # Check date barrier
-                    if review_date.tz_localize(None) < six_months_ago:
+                    if review_date.tz_localize(None) < limit_date.tz_localize(None) if review_date.tzinfo else review_date < limit_date:
                         continue
                         
                     # Extract Rating

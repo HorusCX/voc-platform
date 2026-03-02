@@ -6,9 +6,15 @@ export async function GET(request: NextRequest) {
     if (!BACKEND_URL) return NextResponse.json({ error: "Backend URL not configured" }, { status: 500 });
 
     try {
+        const { searchParams } = new URL(request.url);
         const authHeader = request.headers.get("Authorization");
 
-        const response = await fetch(`${BACKEND_URL}/api/companies`, {
+        const url = new URL(`${BACKEND_URL}/api/companies`);
+        searchParams.forEach((value, key) => {
+            url.searchParams.append(key, value);
+        });
+
+        const response = await fetch(url.toString(), {
             method: "GET",
             headers: {
                 "Content-Type": "application/json",

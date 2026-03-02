@@ -22,7 +22,6 @@ interface VoCResponse {
     summary?: string;
     dashboard_link?: string;
     csv_download_url?: string;
-    email_sent?: boolean;
     body?: unknown;
     output?: unknown;
     dimensions?: Record<string, unknown>[];
@@ -243,45 +242,9 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
                     VoC Magic is Complete!
                 </h2>
 
-                <p className="text-slate-600 text-lg mb-8 max-w-md mx-auto">
+                <p className="text-slate-600 text-lg max-w-md mx-auto">
                     We&apos;ve analyzed your reviews and generated actionable insights.
                 </p>
-
-                {/* Action Section */}
-                {(finalResult.dashboard_link || finalResult.csv_download_url) && (
-                    <div className="mb-8 flex flex-col items-center gap-4 transform hover:scale-105 transition-transform duration-300">
-                        <a
-                            href={finalResult.dashboard_link || (finalResult.csv_download_url ? `/dashboard?csv_url=${encodeURIComponent(finalResult.csv_download_url)}` : '#')}
-                            target="_blank"
-                            className="inline-flex items-center justify-center gap-3 bg-green-600 hover:bg-green-700 text-white px-10 py-4 rounded-xl font-bold text-xl shadow-lg hover:shadow-green-500/30 transition-all"
-                        >
-                            <BarChart3 className="w-6 h-6" />
-                            Dashboard
-                        </a>
-                        {(finalResult.dashboard_link || finalResult.csv_download_url) && (
-                            <div className="text-xs text-slate-400 bg-slate-50 px-3 py-1 rounded-full border border-slate-100 max-w-sm truncate text-center">
-                                Link: <span className="font-mono text-[10px] opacity-70">
-                                    {finalResult.dashboard_link || finalResult.csv_download_url}
-                                </span>
-                            </div>
-                        )}
-                    </div>
-                )}
-
-                <div className="bg-white/60 backdrop-blur-sm rounded-lg p-4 max-w-sm mx-auto border border-green-100 mb-8">
-                    <p className="text-sm text-slate-500">
-                        {finalResult?.email_sent
-                            ? "📧 A copy of this report has also been sent to info@horuscx.com"
-                            : "ℹ️ Analysis complete."}
-                    </p>
-                </div>
-
-                <button
-                    onClick={onReset}
-                    className="text-green-700 hover:text-green-800 font-medium hover:underline text-sm"
-                >
-                    Start New Analysis
-                </button>
             </Card>
         );
     }
@@ -360,29 +323,7 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
                 )}
 
                 <div className="flex flex-col sm:flex-row gap-3 justify-center">
-                    {/* 1. Dashboard Link if available (from Scraper!?) usually not, but fallback */}
-                    {data?.dashboard_link && (
-                        <a
-                            href={data.dashboard_link}
-                            target="_blank"
-                            className="inline-flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white px-6 py-3 rounded-lg font-bold shadow-md transition-colors"
-                        >
-                            Open Dashboard Report 🚀
-                        </a>
-                    )}
 
-                    {/* 1.5 CSV Download Link */}
-                    {data?.csv_download_url && (
-                        <a
-                            href={data.csv_download_url.startsWith('http') ? data.csv_download_url : `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}${data.csv_download_url}`}
-                            download
-                            target="_blank"
-                            className="inline-flex items-center justify-center gap-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 px-6 py-3 rounded-lg font-bold shadow-sm transition-all hover:scale-105 active:scale-95"
-                        >
-                            <Download className="h-5 w-5" />
-                            Download Results CSV
-                        </a>
-                    )}
 
                     {/* 2. Generate Dimensions Button */}
                     {dimensions.length === 0 && (

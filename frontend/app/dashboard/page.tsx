@@ -1,118 +1,78 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { ExecutiveDashboard } from "@/components/dashboard/ExecutiveDashboard";
 import { OperationalDashboard } from "@/components/dashboard/OperationalDashboard";
-import { UploadData } from "@/components/dashboard/UploadData";
 import {
-    parseCSVFromURL,
-    processDashboardData,
     DashboardData,
-    ReviewData
 } from "@/lib/dashboard-utils";
 import { Loader2 } from "lucide-react";
+import { usePortfolio } from "@/contexts/PortfolioContext";
+import { VoCService } from "@/lib/api";
 
-type TabType = 'executive' | 'operational' | 'data';
+type TabType = 'executive' | 'operational';
 
 export default function DashboardPage() {
-    const [activeTab, setActiveTab] = useState<TabType>('data');
+    const [activeTab, setActiveTab] = useState<TabType>('executive');
     const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [allReviews, setAllReviews] = useState<ReviewData[]>([]);
     const [availableBrands, setAvailableBrands] = useState<string[]>([]);
     const [selectedBrands, setSelectedBrands] = useState<string[]>([]);
+    const initialLoadDone = useRef(false);
 
-    const processReviews = useCallback((reviews: ReviewData[]) => {
-        // Filter reviews by selected brands
-        const filteredReviews = selectedBrands.length > 0
-            ? reviews.filter(r => selectedBrands.includes(r.brand))
-            : reviews;
+    const { currentPortfolio } = usePortfolio();
 
-        const processedData = processDashboardData(filteredReviews);
-        setDashboardData(processedData);
-    }, [selectedBrands]);
-
-    const loadDataFromUrl = useCallback(async (url: string) => {
+    // Filter reviews by selected brands using a server-side request
+    const processReviews = useCallback(async (jobId: string | null = null) => {
         setIsLoading(true);
-        setError(null);
-
         try {
-            const reviews: ReviewData[] = await parseCSVFromURL(url);
+            // Convert selected array to comma-separated string, unless empty
+            const brandStr = selectedBrands.length > 0 && selectedBrands.length < availableBrands.length
+                ? selectedBrands.join(',')
+                : 'all';
 
-            if (!reviews || reviews.length === 0) {
-                throw new Error('No data found in CSV file');
+            if (!currentPortfolio?.id) {
+                setError("No portfolio selected.");
+                setIsLoading(false);
+                return;
             }
 
-            // Extract unique brands
-            const brands = [...new Set(reviews.map(r => r.brand))].filter(Boolean).sort();
-            setAvailableBrands(brands);
-            setSelectedBrands([]); // Start with all brands (empty = all)
-            setAllReviews(reviews);
+            const stats = await VoCService.getDashboardStats(currentPortfolio.id, brandStr === 'all' ? undefined : brandStr) as DashboardData | null;
 
-            // Process initial data
-            const processedData = processDashboardData(reviews);
-            setDashboardData(processedData);
-            setActiveTab('executive');
+            if (stats && stats.brandStats && stats.brandStats.length > 0) {
+                // Only update availableBrands if it's the very first load
+                if (!initialLoadDone.current) {
+                    const brands = stats.brandStats.map(b => b.brand).sort();
+                    setAvailableBrands(brands);
+                    setSelectedBrands([]); // Default to all selected
+                    initialLoadDone.current = true;
+                }
+
+                setDashboardData(stats);
+
+                // Set tab if not set
+                if (!activeTab) {
+                    setActiveTab('executive');
+                }
+            } else {
+                setError("No data found for this analysis.");
+            }
         } catch (err) {
-            console.error('Error loading data:', err);
-            setError(err instanceof Error ? err.message : 'Failed to load data');
+            console.error('API fetch failed:', err);
+            setError(err instanceof Error ? err.message : "Failed to load dashboard data");
         } finally {
             setIsLoading(false);
         }
-    }, []);
+    }, [selectedBrands, availableBrands.length, activeTab]);
 
-    // Check for URL parameter on mount
+    // Check for URL parameter on mount and initial load
     useEffect(() => {
         const params = new URLSearchParams(window.location.search);
-        const csvUrl = params.get('csv_url');
         const jobId = params.get('job_id');
 
-        if (csvUrl) {
-            loadDataFromUrl(csvUrl);
-        } else if (jobId) {
-            // New Logic: Check status to get fresh URL
-            const checkJobStatus = async () => {
-                setIsLoading(true);
-                try {
-                    // Use internal API route to avoid Mixed Content (HTTPS -> HTTP) issues
-                    // The API route (running on server) will proxy to the backend
-                    const res = await fetch(`/api/check-status?job_id=${jobId}`);
-
-                    if (!res.ok) {
-                        throw new Error(`Failed to check job status: ${res.status}`);
-                    }
-
-                    const data = await res.json();
-                    if (data.csv_download_url) {
-                        loadDataFromUrl(data.csv_download_url);
-                    } else if (data.status === 'completed' && data.s3_key) {
-                        // If for some reason url is missing but key exists
-                        setError("Analysis found but download link missing. Please try again.");
-                        setIsLoading(false);
-                    } else if (data.status === 'error') {
-                        throw new Error(data.message || "Analysis failed");
-                    } else {
-                        // Still processing?
-                        setError(`Analysis status: ${data.status}. Please refresh shortly.`);
-                        setIsLoading(false);
-                    }
-                } catch (e) {
-                    console.error("Error fetching job:", e);
-                    setError(e instanceof Error ? e.message : "Failed to load analysis");
-                    setIsLoading(false);
-                }
-            };
-            checkJobStatus();
-        }
-    }, [loadDataFromUrl]);
-
-    // Reprocess data when brand filter changes
-    useEffect(() => {
-        if (allReviews.length > 0) {
-            processReviews(allReviews);
-        }
-    }, [selectedBrands, allReviews, processReviews]);
+        processReviews(jobId);
+    }, [selectedBrands, processReviews, currentPortfolio?.id]); // We refetch when selectedBrands or portfolio changes
 
     const toggleBrand = (brand: string) => {
         setSelectedBrands(prev =>
@@ -157,11 +117,6 @@ export default function DashboardPage() {
                                 onClick={() => setActiveTab('operational')}
                                 label="Operational"
                             />
-                            <TabButton
-                                active={activeTab === 'data'}
-                                onClick={() => setActiveTab('data')}
-                                label="Data Source"
-                            />
                         </nav>
                     </div>
 
@@ -171,7 +126,6 @@ export default function DashboardPage() {
                             <BrandFilter
                                 availableBrands={availableBrands}
                                 selectedBrands={selectedBrands}
-                                allReviews={allReviews}
                                 onToggleBrand={toggleBrand}
                                 onSelectAll={selectAllBrands}
                                 onDeselectAll={deselectAllBrands}
@@ -192,14 +146,8 @@ export default function DashboardPage() {
 
                 {error && (
                     <div className="bg-destructive/10 border border-destructive/20 rounded-xl p-6 mb-6 max-w-lg mx-auto text-center">
-                        <h3 className="font-semibold text-destructive mb-1">Unable to Load Data</h3>
+                        <h3 className="font-semibold text-destructive mb-1">Notice</h3>
                         <p className="text-sm text-destructive/80 mb-4">{error}</p>
-                        <button
-                            onClick={() => setActiveTab('data')}
-                            className="text-xs font-medium bg-background border border-destructive/30 text-destructive px-4 py-2 rounded-lg hover:bg-destructive/5 transition-colors shadow-sm"
-                        >
-                            Try uploading again
-                        </button>
                     </div>
                 )}
 
@@ -213,13 +161,7 @@ export default function DashboardPage() {
                             <OperationalDashboard data={dashboardData} />
                         )}
 
-                        {activeTab === 'data' && (
-                            <div className="max-w-2xl mx-auto">
-                                <UploadData onDataLoaded={loadDataFromUrl} />
-                            </div>
-                        )}
-
-                        {!dashboardData && activeTab !== 'data' && (
+                        {!dashboardData && (
                             <div className="text-center py-32">
                                 <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-muted mb-4">
                                     <svg className="w-6 h-6 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -228,14 +170,8 @@ export default function DashboardPage() {
                                 </div>
                                 <h3 className="text-lg font-semibold text-foreground mb-2">No Data Available</h3>
                                 <p className="text-sm text-muted-foreground mb-6 max-w-sm mx-auto">
-                                    Upload a CSV file or provide an S3 URL to generate the dashboard.
+                                    You don&apos;t have any review data yet. Please go to Companies and scrape some reviews first.
                                 </p>
-                                <button
-                                    onClick={() => setActiveTab('data')}
-                                    className="bg-primary hover:bg-primary/90 text-primary-foreground text-sm font-medium py-2.5 px-6 rounded-lg transition-colors shadow-sm"
-                                >
-                                    Upload Data
-                                </button>
                             </div>
                         )}
                     </div>
@@ -274,7 +210,6 @@ function TabButton({ active, onClick, label }: { active: boolean; onClick: () =>
 interface BrandFilterProps {
     availableBrands: string[];
     selectedBrands: string[];
-    allReviews: ReviewData[];
     onToggleBrand: (brand: string) => void;
     onSelectAll: () => void;
     onDeselectAll: () => void;
@@ -283,7 +218,6 @@ interface BrandFilterProps {
 function BrandFilter({
     availableBrands,
     selectedBrands,
-    allReviews,
     onToggleBrand,
     onSelectAll,
     onDeselectAll
@@ -302,12 +236,6 @@ function BrandFilter({
         document.addEventListener('mousedown', handleClickOutside);
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, [isOpen]);
-
-    // Calculate review counts per brand
-    const brandCounts = availableBrands.reduce((acc, brand) => {
-        acc[brand] = allReviews.filter(r => r.brand === brand).length;
-        return acc;
-    }, {} as Record<string, number>);
 
     const isAllSelected = selectedBrands.length === 0;
     const selectedCount = isAllSelected ? availableBrands.length : selectedBrands.length;
@@ -392,9 +320,6 @@ function BrandFilter({
                                         {brand}
                                     </p>
                                 </div>
-                                <span className="text-xs text-muted-foreground font-mono">
-                                    {brandCounts[brand]}
-                                </span>
                             </label>
                         );
                     })}

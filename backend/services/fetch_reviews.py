@@ -16,6 +16,14 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
+import ssl
+try:
+    _create_unverified_https_context = ssl._create_unverified_context
+except AttributeError:
+    pass
+else:
+    ssl._create_default_https_context = _create_unverified_https_context
+
 import boto3
 from botocore.exceptions import NoCredentialsError
 
@@ -23,6 +31,9 @@ logger = logging.getLogger(__name__)
 
 # Import Google Maps Scraper (lazy or direct)
 from services.fetch_maps_reviews import scrape_google_maps_reviews
+
+# Import DB models
+from database import Review, SessionLocal
 
 # Config
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
@@ -60,12 +71,12 @@ def upload_to_s3(file_path, object_name=None):
         return None
 
 # 1. Google Play Scraper
-def scrape_google_play(brand_name, app_id):
+def scrape_google_play(brand_name, app_id, since_date=None):
     if not app_id:
         return pd.DataFrame()
 
     logger.info(f"--- 🟢 Starting Google Play Scrape for {brand_name} ({app_id}) ---")
-    six_months_ago = datetime.now() - pd.DateOffset(months=6)
+    limit_date = since_date if since_date is not None else datetime.now() - pd.DateOffset(months=6)
     
     def process_country(country):
         try:
@@ -81,12 +92,12 @@ def scrape_google_play(brand_name, app_id):
                 batch_oldest_date = None
                 for r in result:
                     r_date = r['at']
-                    if r_date < six_months_ago: continue
+                    if r_date < limit_date: continue
                     r['country'] = country 
                     country_reviews.append(r)
                     batch_oldest_date = r_date
 
-                if batch_oldest_date and batch_oldest_date < six_months_ago: break
+                if batch_oldest_date and batch_oldest_date < limit_date: break
                 if not continuation_token: break
                 if len(country_reviews) > 2000: break
             
@@ -119,10 +130,10 @@ def scrape_google_play(brand_name, app_id):
     return df
 
 # 2. Apple App Store Scraper
-def scrape_app_store(brand_name, app_id):
+def scrape_app_store(brand_name, app_id, since_date=None):
     if not app_id: return pd.DataFrame()
     logger.info(f"--- 🍎 Starting Apple App Store Scrape for {brand_name} ---")
-    six_months_ago = pd.Timestamp(datetime.now() - pd.DateOffset(months=6))
+    limit_date = pd.Timestamp(since_date if since_date is not None else datetime.now() - pd.DateOffset(months=6))
     
     def process_country(country):
         country_reviews = []
@@ -142,7 +153,7 @@ def scrape_app_store(brand_name, app_id):
                     try:
                         date_str = entry.get('updated', {}).get('label', '')
                         entry_date = pd.to_datetime(date_str)
-                        if entry_date.tz_localize(None) < six_months_ago:
+                        if entry_date.tz_localize(None) < limit_date:
                             continue
                         review = {
                             'text': entry.get('content', {}).get('label', ''),
@@ -178,7 +189,55 @@ def scrape_app_store(brand_name, app_id):
     return df
 
 # MAIN LOGIC
-def run_scraper_service(job_id, brands_list, progress_callback=None):
+def save_reviews_to_db(job_id: str, df: pd.DataFrame, portfolio_id: int):
+    """Bulk insert reviews from DataFrame into the reviews table."""
+    if df.empty:
+        return
+
+    db = SessionLocal()
+    from sqlalchemy.dialects.postgresql import insert
+    try:
+        reviews_data = []
+        for _, row in df.iterrows():
+            def _clean(val, is_str=True):
+                if pd.isna(val): return "" if is_str else None
+                s = str(val).strip()
+                if s.lower() in ["nan", "none", "null", "nat"]: return "" if is_str else None
+                return s
+
+            text_val = _clean(row.get("text"), True)
+            user_val = _clean(row.get("source_user"), True)
+            date_val = _clean(row.get("date"), True)
+            plat_val = _clean(row.get("platform"), True)
+            
+            reviews_data.append({
+                "job_id": job_id,
+                "portfolio_id": portfolio_id,
+                "brand": str(row.get("brand", "")),
+                "text": text_val,
+                "rating": int(row.get("rating", 0)) if pd.notna(row.get("rating")) else None,
+                "date": date_val,
+                "source_user": user_val,
+                "platform": plat_val,
+                "source_location": str(row.get("source_location", "")) if pd.notna(row.get("source_location")) else None,
+            })
+            
+        if reviews_data:
+            stmt = insert(Review).values(reviews_data)
+            stmt = stmt.on_conflict_do_nothing(
+                constraint='uq_review_text_user_date_platform'
+            )
+            db.execute(stmt)
+            db.commit()
+            logger.info(f"💾 Saved {len(reviews_data)} reviews to database for job {job_id}")
+    except Exception as e:
+        db.rollback()
+        logger.error(f"❌ Failed to save reviews to database: {e}")
+    finally:
+        db.close()
+
+
+def run_scraper_service(job_id, brands_list, portfolio_id, progress_callback=None):
     """
     Main function to run scraping. Saves result to backend/data/{job_id}.csv
     """
@@ -219,38 +278,100 @@ def run_scraper_service(job_id, brands_list, progress_callback=None):
                     unique_links.append(l)
             gmaps_links = unique_links
             
+            since_date_play = None
+            since_date_app = None
+            
+            if portfolio_id:
+                try:
+                    db = SessionLocal()
+                    from sqlalchemy import func
+                    
+                    max_date_play = db.query(func.max(Review.date)).filter(
+                        Review.portfolio_id == portfolio_id, 
+                        Review.brand == name, 
+                        Review.platform.like("Google Play%")
+                    ).scalar()
+                    if max_date_play:
+                        since_date_play = pd.to_datetime(max_date_play).tz_localize(None)
+                    
+                    max_date_app = db.query(func.max(Review.date)).filter(
+                        Review.portfolio_id == portfolio_id, 
+                        Review.brand == name, 
+                        Review.platform.like("App Store%")
+                    ).scalar()
+                    if max_date_app:
+                        since_date_app = pd.to_datetime(max_date_app).tz_localize(None)
+                    
+                    # Fetch since_date for Google Maps
+                    since_date_maps = None
+                    max_date_maps = db.query(func.max(Review.date)).filter(
+                        Review.portfolio_id == portfolio_id, 
+                        Review.brand == name, 
+                        Review.platform.like("Google Maps%")
+                    ).scalar()
+                    if max_date_maps:
+                        since_date_maps = pd.to_datetime(max_date_maps).tz_localize(None)
+
+                    # Fetch since_date for Trustpilot
+                    since_date_tp = None
+                    max_date_tp = db.query(func.max(Review.date)).filter(
+                        Review.portfolio_id == portfolio_id, 
+                        Review.brand == name, 
+                        Review.platform == "Trustpilot"
+                    ).scalar()
+                    if max_date_tp:
+                        since_date_tp = pd.to_datetime(max_date_tp).tz_localize(None)
+
+                    db.close()
+                except Exception as e:
+                    logger.error(f"Error fetching latest dates for {name}: {e}")
+
             if RUN_GOOGLE_PLAY and android_id:
-                f = executor.submit(scrape_google_play, name, android_id)
+                f = executor.submit(scrape_google_play, name, android_id, since_date_play)
                 future_map[f] = {'brand': name, 'type': 'play'}
                 
             if RUN_APP_STORE and apple_id:
-                f = executor.submit(scrape_app_store, name, apple_id)
+                f = executor.submit(scrape_app_store, name, apple_id, since_date_app)
                 future_map[f] = {'brand': name, 'type': 'app'}
                 
             if RUN_GOOGLE_MAPS and gmaps_links:
                 batch_locations = []
+                # Simple heuristic: if company is Kcal or website is .ae, use UAE
+                default_loc = "Saudi Arabia"
+                if "kcal" in name.lower() or (brand.get('website') and ".ae" in brand.get('website').lower()):
+                    default_loc = "United Arab Emirates"
+                
                 for link_data in gmaps_links:
                     if isinstance(link_data, dict):
                         place_id = link_data.get("place_id", "")
                         url = link_data.get("url", "")
                         location_name = link_data.get("name", "")
                         
-                        target = f"place_id:{place_id}" if place_id else (location_name or url)
+                        target = f"place_id:{place_id}" if place_id else (url or location_name)
                         if target:
-                            batch_locations.append({"keyword": target, "name": location_name or target})
+                            # Use the EXACT target string as the name so it matches the 'tag' we added to fetch_maps_reviews
+                            batch_locations.append({
+                                "keyword": target, 
+                                "name": target, # This is the key we'll match on later
+                                "location": default_loc
+                            })
                     else:
                         if link_data:
-                            batch_locations.append({"keyword": link_data, "name": link_data})
+                            batch_locations.append({
+                                "keyword": link_data, 
+                                "name": link_data, 
+                                "location": default_loc
+                            })
                 
                 if batch_locations:
                     from services.fetch_maps_reviews import scrape_multiple_locations
-                    f = executor.submit(scrape_multiple_locations, batch_locations)
+                    f = executor.submit(scrape_multiple_locations, batch_locations, since_date=since_date_maps)
                     future_map[f] = {'brand': name, 'type': 'maps_batch', 'locations': [loc['name'] for loc in batch_locations]}
             
             trustpilot_link = brand.get('trustpilot_link')
             if RUN_TRUSTPILOT and trustpilot_link:
                 from services.fetch_trustpilot_reviews import scrape_trustpilot
-                f = executor.submit(scrape_trustpilot, name, trustpilot_link)
+                f = executor.submit(scrape_trustpilot, name, trustpilot_link, since_date=since_date_tp)
                 future_map[f] = {'brand': name, 'type': 'trustpilot'}
 
         # Track all maps link results (including 0)
@@ -323,12 +444,19 @@ def run_scraper_service(job_id, brands_list, progress_callback=None):
         final_df = pd.concat(all_dfs, ignore_index=True)
         final_df.drop_duplicates(subset=['text', 'source_user', 'date', 'brand'], inplace=True)
         
-        filename = f"{job_id}.csv"
-        file_path = os.path.join(DATA_DIR, filename)
-        final_df.to_csv(file_path, index=False, encoding='utf-8-sig')
-        
-        # Upload to S3
-        s3_url = upload_to_s3(file_path, f"scrapped_data/{filename}")
+        # --- DEPRECATED: CSV EXPORT & S3 UPLOAD ---
+        # filename = f"{job_id}.csv"
+        # file_path = os.path.join(DATA_DIR, filename)
+        # final_df.to_csv(file_path, index=False, encoding='utf-8-sig')
+        # s3_url = upload_to_s3(file_path, f"scrapped_data/{filename}")
+        # ----------------------------------------
+        file_path = None
+        s3_url = None
+
+        # Save reviews to database
+        if portfolio_id:
+            logger.info(f"💾 Saving {len(final_df)} reviews to DB (Portfolio: {portfolio_id})")
+            save_reviews_to_db(job_id, final_df, portfolio_id)
         
         # Summary
         

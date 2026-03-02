@@ -42,6 +42,33 @@ export function StepLocations({ initialData, jobId, onComplete }: StepLocationsP
         });
     }, []);
 
+    // Track active polling intervals so we can cancel them
+    const pollIntervals = useRef<{ [key: number]: NodeJS.Timeout }>({});
+
+    // Cleanup intervals on unmount
+    useEffect(() => {
+        const intervals = pollIntervals.current;
+        return () => {
+            Object.values(intervals).forEach(clearInterval);
+        };
+    }, []);
+
+    const handleCancelDiscovery = useCallback((index: number) => {
+        // Clear the active interval
+        if (pollIntervals.current[index]) {
+            clearInterval(pollIntervals.current[index]);
+            delete pollIntervals.current[index];
+        }
+
+        // Remove from discovering state and update status
+        setDiscoveringIndices(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(index);
+            return newSet;
+        });
+        setDiscoveryStatuses(prev => ({ ...prev, [index]: "Cancelled." }));
+    }, []);
+
     const handleDiscoverMaps = useCallback(async (index: number) => {
         const item = items[index];
         if (!item?.company_name) return;
@@ -72,6 +99,7 @@ export function StepLocations({ initialData, jobId, onComplete }: StepLocationsP
 
                     if (statusData.status === "completed") {
                         clearInterval(pollInterval);
+                        delete pollIntervals.current[index];
 
                         const result = statusData.result as { locations?: (string | MapsLink)[] };
                         const newLocations = result?.locations || [];
@@ -126,6 +154,7 @@ export function StepLocations({ initialData, jobId, onComplete }: StepLocationsP
                         });
                     } else if (statusData.status === "error" || statusData.status === "failed") {
                         clearInterval(pollInterval);
+                        delete pollIntervals.current[index];
                         setDiscoveryStatuses(prev => ({ ...prev, [index]: `Failed: ${statusData.message || "Unknown error"}` }));
                         setDiscoveringIndices(prev => {
                             const newSet = new Set(prev);
@@ -137,6 +166,10 @@ export function StepLocations({ initialData, jobId, onComplete }: StepLocationsP
                     console.error("Polling error:", pollErr);
                 }
             }, 3000); // Poll every 3 seconds
+
+            // Store the interval in the ref
+            pollIntervals.current[index] = pollInterval;
+
         } catch (err) {
             console.error("Discovery failed to start", err);
             const errorObj = err as { response?: { data?: { detail?: string; error?: string } } };
@@ -241,14 +274,24 @@ export function StepLocations({ initialData, jobId, onComplete }: StepLocationsP
                                         <MapPin className="w-3 h-3" /> Google Maps Locations
                                     </label>
                                     {discoveringIndices.has(index) ? (
-                                        <span className="text-xs flex items-center gap-1 text-muted-foreground">
-                                            <Loader2 className="w-3 h-3 animate-spin" />
-                                            {discoveryStatuses[index] || "Loading..."}
-                                        </span>
+                                        <div className="flex items-center gap-3">
+                                            <span className="text-xs flex items-center gap-1 text-muted-foreground">
+                                                <Loader2 className="w-3 h-3 animate-spin" />
+                                                {discoveryStatuses[index] || "Loading..."}
+                                            </span>
+                                            <button
+                                                onClick={() => handleCancelDiscovery(index)}
+                                                className="text-[10px] font-semibold flex items-center gap-1 bg-destructive/10 text-destructive hover:bg-destructive/20 px-2 py-0.5 rounded transition-colors"
+                                                title="Stop looking for this brand"
+                                            >
+                                                <X className="w-3 h-3" />
+                                                Cancel
+                                            </button>
+                                        </div>
                                     ) : (
                                         <button
                                             onClick={() => handleDiscoverMaps(index)}
-                                            className="text-xs text-primary hover:underline"
+                                            className="text-xs text-primary hover:underline flex items-center"
                                         >
                                             <Search className="w-3 h-3 inline mr-1" />
                                             Re-Discover

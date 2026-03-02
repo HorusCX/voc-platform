@@ -8,7 +8,7 @@ import os
 import asyncio
 import uuid
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 import urllib.parse
 import logging
 import json
@@ -30,12 +30,14 @@ from services.fetch_reviews import run_scraper_service
 from services.analyze_reviews import generate_dimensions, analyze_reviews
 
 # Database & Auth
-from database import init_db, get_db, User, CompanyModel, get_user_limits, SessionLocal
+from database import init_db, get_db, User, CompanyModel, Review, Dimension, get_user_limits, SessionLocal, Portfolio, user_portfolios, PortfolioInvitation
 from auth import (
     hash_password, verify_password, create_access_token,
     get_current_user, require_admin, is_admin_email
 )
+from services.email_service import send_invitation_email
 from sqlalchemy.orm import Session
+from sqlalchemy import or_, asc, desc, cast, Text, select
 
 
 
@@ -52,6 +54,11 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="VoC Backend")
 
+# Debugging NameError
+import database
+print(f"DEBUG: database has PortfolioInvitation: {'PortfolioInvitation' in dir(database)}")
+logger.info(f"DEBUG: database has PortfolioInvitation: {'PortfolioInvitation' in dir(database)}")
+
 # CORS
 app.add_middleware(
     CORSMiddleware,
@@ -60,6 +67,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.get("/api/debug/version")
+def debug_version():
+    return {
+        "version": "v2", 
+        "has_invitation": "PortfolioInvitation" in globals(),
+        "database_has_invitation": "PortfolioInvitation" in dir(database)
+    }
 
 # Ensure data directory exists
 os.makedirs("data", exist_ok=True)
@@ -141,6 +156,49 @@ def update_job_status(job_id: str, status: str, message: str, task_type: str="pr
     try:
         s3 = boto3.client('s3', region_name=AWS_REGION)
         if S3_BUCKET_NAME:
+            metadata = {
+                'job_id': job_id,
+                'status': status,
+                'message': message,
+                'task_type': task_type
+            }
+            # Merge additional metadata if provided
+            metadata.update({k: str(v) for k, v in kwargs.items()})
+            
+            s3.put_object(
+                Bucket=S3_BUCKET_NAME,
+                Key=f"status/{job_id}",
+                Body=json.dumps(metadata),
+                Metadata=metadata,
+                ContentType='application/json'
+            )
+        logger.info(f"🔄 Job {job_id} status updated to: {status}")
+    except Exception as e:
+        logger.error(f"❌ Failed to update job status for {job_id}: {e}")
+
+def check_portfolio_access(db: Session, user_id: int, portfolio_id: int):
+    """
+    Verifies that a user has access to a specific portfolio.
+    Checks inside the user_portfolios association table.
+    """
+    has_access = db.execute(
+        select(user_portfolios).where(
+            user_portfolios.c.user_id == user_id,
+            user_portfolios.c.portfolio_id == portfolio_id
+        )
+    ).first()
+    
+    if not has_access:
+        logger.warning(f"🚫 Access Denied: User {user_id} tried to access Portfolio {portfolio_id}")
+        raise HTTPException(status_code=403, detail="Access denied to this portfolio")
+    
+    portfolio = db.query(Portfolio).filter(Portfolio.id == portfolio_id).first()
+    if not portfolio:
+        raise HTTPException(status_code=404, detail="Portfolio not found")
+    return portfolio
+    try:
+        s3 = boto3.client('s3', region_name=AWS_REGION)
+        if S3_BUCKET_NAME:
             payload = {
                 "status": status, 
                 "message": message, 
@@ -209,35 +267,71 @@ def task_analyze_website(job_id: str, website: str):
         update_job_status(job_id, "error", str(e))
 
 
-
-def task_scrap_reviews(job_id: str, brands_list: List[Dict]):
-    logger.info(f"🕸️ Starting Background Task: Scraping for {job_id}")
-    update_job_status(job_id, "running", "Starting scraper...")
-    
-    def progress_callback(msg):
-        logger.info(f"[Job {job_id}] {msg}")
-        update_job_status(job_id, "running", msg)
+def task_final_analysis(job_id: str, file_key: str, dimensions: List[dict], portfolio_id: int):
+    """
+    Background task to perform AI analysis on reviews.
+    """
+    if not OPENAI_API_KEY:
+        logger.error("❌ OpenAI API Key missing")
+        update_job_status(job_id, "error", "Server configuration error: OpenAI Key missing", task_type="analysis")
+        return
 
     try:
-        result = run_scraper_service(job_id, brands_list, progress_callback)
-        logger.info(f"✅ Scraping completed. Result S3 Key: {result.get('s3_key')}")
+        update_job_status(job_id, "running", "Starting AI analysis...", "analysis")
         
-        # Explicitly mark as completed in status tracking
-        # Remove keys that might conflict with positional/keyword args
-        result.pop("status", None)
-        result.pop("message", None)
+        # Call the analysis service
+        analyze_reviews(file_key, dimensions, OPENAI_API_KEY, job_id, portfolio_id)
         
-        update_job_status(
-            job_id, 
-            "completed", 
-            "Scraping completed successfully!", 
-            task_type="scraping",
-            **result # This includes s3_key, summary, sample_reviews, etc.
-        )
+        update_job_status(job_id, "completed", "Analysis finished.", "analysis")
         
     except Exception as e:
-        logger.error(f"❌ Scraping failed: {e}")
-        update_job_status(job_id, "error", f"Scraping failed: {str(e)}")
+        logger.error(f"❌ Analysis Task {job_id} failed: {e}")
+        update_job_status(job_id, "failed", str(e), "analysis")
+
+
+def trigger_auto_analysis(job_id: str, db_session: Session, portfolio_id: int, scraper_context: str = "Scrape"):
+    """
+    Shared helper to check if new reviews were saved for a job_id.
+    If yes, fetches user dimensions and triggers the AI analysis background pipeline.
+    Returns True if analysis was triggered, False otherwise.
+    """
+    from sqlalchemy import func
+    new_reviews_count = db_session.query(func.count(Review.id)).filter(Review.job_id == job_id).scalar()
+    
+    if new_reviews_count > 0:
+        logger.info(f"[{scraper_context}] Fetched {new_reviews_count} new reviews for portfolio {portfolio_id}. Checking for dimensions...")
+        user_dimensions = db_session.query(Dimension).filter(Dimension.portfolio_id == portfolio_id).all()
+        dimensions_list = [{"dimension": d.name, "description": d.description, "keywords": d.keywords} for d in user_dimensions]
+        
+        if dimensions_list:
+            logger.info(f"Found {len(dimensions_list)} dimensions. Triggering auto-analysis for {job_id}.")
+            update_job_status(job_id, "running", f"Scraping complete! Found {new_reviews_count} new reviews. Starting AI Analysis...")
+            # Pass portfolio_id to the analysis task
+            task_final_analysis(job_id=job_id, file_key=None, dimensions=dimensions_list, portfolio_id=portfolio_id)
+            return True
+        else:
+            logger.info(f"No dimensions found for portfolio {portfolio_id}. Skipping auto-analysis.")
+    else:
+        logger.info(f"[{scraper_context}] No new reviews fetched for portfolio {portfolio_id} in job {job_id}.")
+    
+    return False
+
+def task_scrap_reviews(job_id: str, brands: List[dict], portfolio_id: int):
+    """
+    Background task to scrap reviews for multiple brands and platforms.
+    """
+    try:
+        update_job_status(job_id, "running", "Initializing scrapers...", "scraping")
+        
+        # Call the scraper service
+        results = run_scraper_service(job_id, brands, progress_callback=None, portfolio_id=portfolio_id)
+        
+        # update_job_status will be called within run_scraper_service too
+        update_job_status(job_id, "completed", "Scraping finished. Data available.", "scraping", brands=results)
+        
+    except Exception as e:
+        logger.error(f"❌ Scraping Task {job_id} failed: {e}")
+        update_job_status(job_id, "failed", str(e), "scraping")
 
 def task_discover_locations(job_id: str, company_name: str, website: str, session_id: Optional[str] = None):
     logger.info(f"🗺️ Starting Background Task: Discovery for {job_id} (Session: {session_id})")
@@ -314,6 +408,97 @@ def task_final_analysis(job_id: str, file_key: str, dimensions: List[str]):
         logger.error(f"❌ Analysis crashed: {e}")
         update_job_status(job_id, "error", f"Analysis crashed: {str(e)}", task_type="analysis")
 
+def task_reanalyze_all(portfolio_id: int):
+    """
+    Background task to re-analyze all reviews for a specific portfolio.
+    Used when dimensions are changed.
+    """
+    logger.info(f"🔄 Starting Background Task: Re-analyzing all reviews for portfolio {portfolio_id}")
+    
+    db_session: Session = SessionLocal()
+    try:
+        # 1. Fetch current dimensions for the portfolio
+        user_dimensions = db_session.query(Dimension).filter(Dimension.portfolio_id == portfolio_id).all()
+        dimensions_list = [{"dimension": d.name, "description": d.description, "keywords": d.keywords} for d in user_dimensions]
+        
+        if not user_dimensions:
+            logger.warning(f"No dimensions found for portfolio {portfolio_id}. Cannot re-analyze.")
+            return
+
+        # 2. Get all distinct job_ids for this portfolio's reviews
+        job_ids = db_session.query(Review.job_id).filter(Review.portfolio_id == portfolio_id).distinct().all()
+        
+        # 3. Clear existing analysis data (set to NULL)
+        db_session.query(Review).filter(Review.portfolio_id == portfolio_id).update({
+            "sentiment": None,
+            "emotion": None,
+            "confidence": None,
+            "topics": None,
+            "analyzed_at": None
+        }, synchronize_session=False)
+        db_session.commit()
+        logger.info(f"Cleared existing analysis data for portfolio {portfolio_id}")
+        
+        # 4. Trigger re-analysis for each job_id sequentially
+        for (job_id,) in job_ids:
+            # Clear S3 checkpoints for this analysis job
+            from services.analyze_reviews import get_checkpoint_key
+            s3_client = boto3.client('s3', region_name=AWS_REGION)
+            analysis_job_id = f"analysis_{job_id}"
+            try:
+                s3_client.delete_object(Bucket=S3_BUCKET_NAME, Key=get_checkpoint_key(analysis_job_id))
+            except Exception:
+                pass # Checkpoint might not exist, ignore error
+            
+            logger.info(f"Triggering re-analysis for job: {job_id}")
+            # file_path=None because analyze_reviews fetches from DB based on job_id
+            task_final_analysis(job_id=analysis_job_id, file_key=None, dimensions=dimensions_list, portfolio_id=portfolio_id)
+            
+        logger.info(f"✅ Re-analysis triggered for {len(job_ids)} jobs in portfolio {portfolio_id}")
+
+    except Exception as e:
+        logger.error(f"Error preparing re-analysis for portfolio {portfolio_id}: {e}")
+    finally:
+        db_session.close()
+
+def task_sync_latest_reviews(portfolio_id: int):
+    """
+    Background task to automatically fetch and analyze latest reviews for all companies in a portfolio.
+    """
+    logger.info(f"🔄 Starting Background Task: Auto-sync latest reviews for portfolio {portfolio_id}")
+    
+    db_session: Session = SessionLocal()
+    try:
+        from sqlalchemy import func
+        
+        # 1. Check if we synced recently (e.g., last 1 hour)
+        latest_fetch = db_session.query(func.max(Review.created_at)).filter(Review.portfolio_id == portfolio_id).scalar()
+        
+        if latest_fetch and (datetime.utcnow() - latest_fetch).total_seconds() < 3600:
+            logger.info(f"Skipping auto-sync for portfolio {portfolio_id}, last sync was {latest_fetch}")
+            return
+            
+        # 2. Fetch companies for the portfolio
+        user_companies = db_session.query(CompanyModel).filter(CompanyModel.portfolio_id == portfolio_id).all()
+        if not user_companies:
+            logger.info(f"No companies found for portfolio {portfolio_id}. Skipping auto-sync.")
+            return
+        
+        brands_list = [c.to_dict() for c in user_companies]
+        
+        job_id = f"auto_sync_{user_id}_{int(datetime.utcnow().timestamp())}"
+        
+        # 1. Scrape only new reviews (handled by run_scraper_service fetching dates internally)
+        result = run_scraper_service(job_id, brands_list, progress_callback=None, user_id=user_id)
+        
+        # 2. Check if anything was actually added/analyzed and trigger AI Auto-Analysis
+        trigger_auto_analysis(user_id, job_id, db_session, scraper_context="Auto-Sync")
+
+    except Exception as e:
+        logger.error(f"Error in auto-sync for user {user_id}: {e}")
+    finally:
+        db_session.close()
+
 # --- Pydantic Models ---
 class WebsiteRequest(BaseModel):
     website: str
@@ -338,6 +523,7 @@ class Company(BaseModel):
 class ScrapRequest(BaseModel):
     brands: List[Company]
     job_id: Optional[str] = None
+    portfolio_id: int
 
 class UpdateJobConfigRequest(BaseModel):
     job_id: str
@@ -361,6 +547,7 @@ class CompanyCreateRequest(BaseModel):
     google_maps_links: Optional[List[Union[str, dict]]] = []
     trustpilot_link: Optional[str] = None
     is_main: Optional[bool] = False
+    portfolio_id: Optional[int] = None
 
 class CompanyUpdateRequest(BaseModel):
     company_name: Optional[str] = None
@@ -371,6 +558,33 @@ class CompanyUpdateRequest(BaseModel):
     google_maps_links: Optional[List[Union[str, dict]]] = None
     trustpilot_link: Optional[str] = None
     is_main: Optional[bool] = None
+    portfolio_id: Optional[int] = None
+
+class DimensionCreateRequest(BaseModel):
+    name: str
+    description: Optional[str] = None
+    keywords: Optional[List[str]] = []
+    portfolio_id: Optional[int] = None
+
+class DimensionUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    keywords: Optional[List[str]] = None
+    portfolio_id: Optional[int] = None
+
+class PortfolioCreateRequest(BaseModel):
+    name: str
+
+class PortfolioUpdateRequest(BaseModel):
+    name: Optional[str] = None
+
+class InvitationRequest(BaseModel):
+    email: EmailStr
+
+class AcceptInvitationRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=6)
+    token: str
 
 # --- Endpoints ---
 
@@ -435,87 +649,366 @@ def auth_me(current_user: User = Depends(get_current_user)):
 
 
 # ==========================================
+# PORTFOLIO CRUD ENDPOINTS
+# ==========================================
+
+@app.get("/api/portfolios")
+def list_portfolios(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """List all portfolios for the current user."""
+    return [p.to_dict() for p in current_user.portfolios]
+
+
+@app.post("/api/portfolios")
+def create_portfolio(request: PortfolioCreateRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Create a new portfolio and associate it with the current user."""
+    limits = get_user_limits(current_user.role)
+    if limits["max_portfolios"] is not None:
+        if len(current_user.portfolios) >= limits["max_portfolios"]:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Plan limit reached: maximum {limits['max_portfolios']} portfolio(s) allowed. Upgrade for more."
+            )
+
+    portfolio = Portfolio(name=request.name)
+    db.add(portfolio)
+    db.flush() # Get ID
+    
+    # Associate user
+    current_user.portfolios.append(portfolio)
+    db.commit()
+    db.refresh(portfolio)
+    
+    logger.info(f"✅ Portfolio created: '{portfolio.name}' for user {current_user.email}")
+    return portfolio.to_dict()
+
+
+@app.put("/api/portfolios/{portfolio_id}")
+def update_portfolio(portfolio_id: int, request: PortfolioUpdateRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Update a portfolio name."""
+    portfolio = check_portfolio_access(db, current_user.id, portfolio_id)
+    
+    if request.name:
+        portfolio.name = request.name
+        portfolio.updated_at = datetime.utcnow()
+        db.commit()
+    
+    return portfolio.to_dict()
+
+
+@app.delete("/api/portfolios/{portfolio_id}")
+def delete_portfolio(portfolio_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Delete a portfolio."""
+    portfolio = check_portfolio_access(db, current_user.id, portfolio_id)
+    
+    db.delete(portfolio)
+    db.commit()
+    
+    logger.info(f"🗑️ Portfolio deleted: '{portfolio.name}' by user {current_user.email}")
+    return {"message": "Portfolio deleted successfully"}
+
+
+# ==========================================
+# PORTFOLIO INVITATION ENDPOINTS
+# ==========================================
+
+@app.post("/api/portfolios/{portfolio_id}/invite")
+async def invite_to_portfolio(
+    portfolio_id: int, 
+    request: InvitationRequest, 
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user), 
+    db: Session = Depends(get_db)
+):
+    """Invite a user to a portfolio via email."""
+    try:
+        portfolio = check_portfolio_access(db, current_user.id, portfolio_id)
+        
+        email = request.email.lower().strip()
+        
+        # Check if user is already in the portfolio
+        existing_user = db.query(User).filter(User.email == email).first()
+        if existing_user and portfolio in existing_user.portfolios:
+            raise HTTPException(status_code=400, detail="User already has access to this portfolio")
+        
+        # Generate unique token
+        token = str(uuid.uuid4())
+        expires_at = datetime.utcnow() + timedelta(hours=48)
+        
+        # Save invitation
+        invitation = PortfolioInvitation(
+            email=email,
+            portfolio_id=portfolio_id,
+            token=token,
+            status="pending",
+            invited_by_id=current_user.id,
+            expires_at=expires_at
+        )
+        db.add(invitation)
+        db.commit()
+        
+        # Trigger email in background
+        # Update this with your actual frontend URL
+        invite_link = f"http://localhost:3000/invite/accept?token={token}&email={email}"
+        background_tasks.add_task(send_invitation_email, email, portfolio.name, invite_link)
+        
+        logger.info(f"✉️ Invitation sent to {email} for portfolio '{portfolio.name}'")
+        return {"message": "Invitation sent successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Error in invite_to_portfolio: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/invitations/{token}")
+def get_invitation(token: str, db: Session = Depends(get_db)):
+    """Verify an invitation token and return details."""
+    invitation = db.query(PortfolioInvitation).filter(PortfolioInvitation.token == token).first()
+    
+    if not invitation:
+        raise HTTPException(status_code=404, detail="Invitation not found")
+    
+    if invitation.expires_at < datetime.utcnow():
+        raise HTTPException(status_code=400, detail="Invitation has expired")
+    
+    return {
+        "email": invitation.email,
+        "portfolio_name": invitation.portfolio.name
+    }
+
+
+@app.post("/api/invitations/accept")
+def accept_invitation(request: AcceptInvitationRequest, db: Session = Depends(get_db)):
+    """Accept an invitation, create user if needed, and link to portfolio."""
+    invitation = db.query(PortfolioInvitation).filter(PortfolioInvitation.token == request.token).first()
+    
+    if not invitation:
+        raise HTTPException(status_code=404, detail="Invitation not found")
+    
+    if invitation.expires_at < datetime.utcnow():
+        raise HTTPException(status_code=400, detail="Invitation has expired")
+    
+    if invitation.email != request.email:
+        raise HTTPException(status_code=400, detail="Email mismatch")
+    
+    # Check if user exists
+    user = db.query(User).filter(User.email == request.email).first()
+    if not user:
+        # Create new user
+        role = "admin" if is_admin_email(request.email) else "free"
+        user = User(
+            email=request.email,
+            password=hash_password(request.password),
+            role=role
+        )
+        db.add(user)
+        db.flush()
+    
+    # Associate user with portfolio if not already
+    portfolio = invitation.portfolio
+    if portfolio not in user.portfolios:
+        user.portfolios.append(portfolio)
+    
+    # Delete invitation
+    db.delete(invitation)
+    db.commit()
+    
+    # Generate token for immediate login
+    access_token = create_access_token({"sub": str(user.id), "email": user.email, "role": user.role})
+    
+    logger.info(f"✅ Invitation accepted by {user.email} for portfolio '{portfolio.name}'")
+    return {
+        "message": "Invitation accepted successfully",
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": user.to_dict()
+    }
+
+
+@app.get("/api/portfolios/{portfolio_id}/members")
+def list_portfolio_members(
+    portfolio_id: int, 
+    current_user: User = Depends(get_current_user), 
+    db: Session = Depends(get_db)
+):
+    """List all current members and pending invitations for a portfolio."""
+    portfolio = check_portfolio_access(db, current_user.id, portfolio_id)
+    
+    # Get current members
+    members = [u.to_dict() for u in portfolio.users]
+    
+    # Get pending invitations
+    invitations = db.query(PortfolioInvitation).filter(
+        PortfolioInvitation.portfolio_id == portfolio_id,
+        PortfolioInvitation.status == "pending"
+    ).all()
+    
+    return {
+        "members": members,
+        "invitations": [i.to_dict() for i in invitations]
+    }
+
+
+# ==========================================
 # COMPANY CRUD ENDPOINTS
 # ==========================================
 
 @app.get("/api/companies")
-def list_companies(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """List all companies for the current user."""
-    companies = db.query(CompanyModel).filter(CompanyModel.user_id == current_user.id).all()
+async def api_get_companies(portfolio_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """List all companies for a user, filtered by portfolio."""
+    check_portfolio_access(db, current_user.id, portfolio_id)
+    
+    companies = db.query(CompanyModel).filter(
+        CompanyModel.portfolio_id == portfolio_id
+    ).all()
     return [c.to_dict() for c in companies]
 
-
 @app.post("/api/companies")
-def create_company(request: CompanyCreateRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Add a new company. Enforces max company limit for free users."""
+async def api_create_company(request: CompanyCreateRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Add a new company/competitor to a portfolio."""
+    check_portfolio_access(db, current_user.id, request.portfolio_id)
+    
+    # Check limit for portfolio
     limits = get_user_limits(current_user.role)
-    
-    if limits["max_companies"] is not None:
-        current_count = db.query(CompanyModel).filter(CompanyModel.user_id == current_user.id).count()
-        if current_count >= limits["max_companies"]:
-            raise HTTPException(
-                status_code=403,
-                detail=f"Free plan limit reached: maximum {limits['max_companies']} companies (including main company). Upgrade to add more."
-            )
-    
-    company = CompanyModel(
-        user_id=current_user.id,
+    if limits["max_companies"]:
+        existing_count = db.query(CompanyModel).filter(CompanyModel.portfolio_id == request.portfolio_id).count()
+        if existing_count >= limits["max_companies"]:
+            raise HTTPException(status_code=403, detail=f"Company limit reached for your plan ({limits['max_companies']})")
+            
+    new_company = CompanyModel(
         company_name=request.company_name,
         website=request.website,
         description=request.description,
         android_id=request.android_id,
         apple_id=request.apple_id,
-        google_maps_links=request.google_maps_links or [],
+        google_maps_links=request.google_maps_links,
         trustpilot_link=request.trustpilot_link,
+        portfolio_id=request.portfolio_id,
         is_main=request.is_main
     )
-    db.add(company)
+    db.add(new_company)
     db.commit()
-    db.refresh(company)
-    
-    return company.to_dict()
+    db.refresh(new_company)
+    return new_company.to_dict()
 
 
 @app.put("/api/companies/{company_id}")
 def update_company(company_id: int, request: CompanyUpdateRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Update an existing company."""
-    company = db.query(CompanyModel).filter(
-        CompanyModel.id == company_id,
-        CompanyModel.user_id == current_user.id
-    ).first()
-    
-    if not company:
+    """Update a company's details."""
+    db_company = db.query(CompanyModel).filter(CompanyModel.id == company_id).first()
+    if not db_company:
         raise HTTPException(status_code=404, detail="Company not found")
     
-    # Update only provided fields
+    check_portfolio_access(db, current_user.id, db_company.portfolio_id)
+    
+    # Update fields
     update_data = request.dict(exclude_unset=True)
     for key, value in update_data.items():
         if value is not None:
-            setattr(company, key, value)
+            setattr(db_company, key, value)
     
-    company.updated_at = datetime.utcnow()
+    db_company.updated_at = datetime.utcnow()
     db.commit()
-    db.refresh(company)
-    
-    return company.to_dict()
+    db.refresh(db_company)
+    return db_company.to_dict()
 
 
 @app.delete("/api/companies/{company_id}")
 def delete_company(company_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Delete a company."""
-    company = db.query(CompanyModel).filter(
-        CompanyModel.id == company_id,
-        CompanyModel.user_id == current_user.id
-    ).first()
-    
-    if not company:
+    db_company = db.query(CompanyModel).filter(CompanyModel.id == company_id).first()
+    if not db_company:
         raise HTTPException(status_code=404, detail="Company not found")
     
-    db.delete(company)
-    db.commit()
+    check_portfolio_access(db, current_user.id, db_company.portfolio_id)
     
-    return {"message": "Company deleted successfully"}
+    db.delete(db_company)
+    db.commit()
+    return {"message": "Company deleted"}
 
+
+# ==========================================
+# DIMENSION CRUD ENDPOINTS
+# ==========================================
+
+@app.get("/api/dimensions")
+async def api_get_dimensions(portfolio_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """List all dimensions for a portfolio."""
+    check_portfolio_access(db, current_user.id, portfolio_id)
+    
+    dimensions = db.query(Dimension).filter(
+        Dimension.portfolio_id == portfolio_id
+    ).all()
+    return [d.to_dict() for d in dimensions]
+
+
+@app.post("/api/dimensions")
+async def api_create_dimension(request: DimensionCreateRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Create a new dimension for a portfolio."""
+    portfolio_id = request.portfolio_id
+    if not portfolio_id:
+        if not current_user.portfolios:
+             raise HTTPException(status_code=400, detail="User has no portfolios.")
+        portfolio_id = current_user.portfolios[0].id
+        
+    check_portfolio_access(db, current_user.id, portfolio_id)
+    
+    new_dim = Dimension(
+        name=request.name,
+        description=request.description,
+        keywords=request.keywords or [],
+        portfolio_id=portfolio_id
+    )
+    db.add(new_dim)
+    db.commit()
+    db.refresh(new_dim)
+    return new_dim.to_dict()
+
+
+@app.put("/api/dimensions/{dimension_id}")
+def update_dimension(dimension_id: int, request: DimensionUpdateRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Update an existing dimension."""
+    dimension = db.query(Dimension).filter(
+        Dimension.id == dimension_id,
+        Dimension.user_id == current_user.id
+    ).first()
+    
+    if not dimension:
+        raise HTTPException(status_code=404, detail="Dimension not found")
+    
+    # Update only provided fields
+    update_data = request.dict(exclude_unset=True)
+    for key, value in update_data.items():
+        if value is not None:
+            setattr(dimension, key, value)
+    
+    dimension.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(dimension)
+    
+    return dimension.to_dict()
+
+
+@app.delete("/api/dimensions/{dim_id}")
+async def api_delete_dimension(dim_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Delete a dimension."""
+    dim = db.query(Dimension).filter(Dimension.id == dim_id).first()
+    if not dim:
+        raise HTTPException(status_code=404, detail="Dimension not found")
+        
+    check_portfolio_access(db, current_user.id, dim.portfolio_id)
+    
+    db.delete(dim)
+    db.commit()
+    return {"message": "Dimension deleted"}
+
+@app.post("/api/dimensions/reanalyze")
+async def reanalyze_reviews(portfolio_id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Trigger background re-analysis of all reviews for a portfolio."""
+    check_portfolio_access(db, current_user.id, portfolio_id)
+    
+    background_tasks.add_task(task_reanalyze_all, portfolio_id)
+    return {"message": "Re-analysis started in background"}
 
 # ==========================================
 # ORIGINAL ENDPOINTS (below)
@@ -654,18 +1147,81 @@ async def api_resolve_app_ids(companies: List[Company], current_user: User = Dep
         raise HTTPException(status_code=500, detail=f"Failed to resolve app IDs: {str(e)}")
 
 @app.post("/api/scrap-reviews")
-async def api_scrap_reviews(request: ScrapRequest, background_tasks: BackgroundTasks, current_user: User = Depends(get_current_user)):
+async def api_scrap_reviews(request: ScrapRequest, background_tasks: BackgroundTasks, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """
     Start scraping reviews for the given brands.
+    Saves or updates the companies in the database for the given portfolio.
     """
+    check_portfolio_access(db, current_user.id, request.portfolio_id)
     job_id = request.job_id or str(uuid.uuid4())
+    
+    # 1. Fetch current companies for portfolio to check limits and manage upsert
+    user_companies = db.query(CompanyModel).filter(CompanyModel.portfolio_id == request.portfolio_id).all()
+    user_company_map = {c.company_name: c for c in user_companies}
+    
+    limits = get_user_limits(current_user.role)
+    new_company_count = 0
+    
+    for brand in request.brands:
+        if brand.company_name and brand.company_name not in user_company_map:
+            new_company_count += 1
+            
+    # Check limits if applicable
+    if limits["max_companies"] is not None:
+        if len(user_companies) + new_company_count > limits["max_companies"]:
+             raise HTTPException(
+                status_code=403,
+                detail=f"Plan limit reached: maximum {limits['max_companies']} companies allowed per portfolio."
+            )
+            
+    # 2. Iterate and upsert the brands to the database
+    for brand in request.brands:
+        if not brand.company_name:
+            continue
+            
+        maps_links = []
+        if brand.google_maps_links:
+            # handle serialization of generic types into dicts for JSON column
+            maps_links = [link.dict() if hasattr(link, 'dict') else link for link in brand.google_maps_links]
+            
+        # Update existing
+        if brand.company_name in user_company_map:
+            db_company = user_company_map[brand.company_name]
+            db_company.website = brand.website or db_company.website
+            db_company.description = brand.description or db_company.description
+            db_company.android_id = brand.android_id or db_company.android_id
+            db_company.apple_id = brand.apple_id or db_company.apple_id
+            db_company.google_maps_links = maps_links or db_company.google_maps_links
+            db_company.trustpilot_link = brand.trustpilot_link or db_company.trustpilot_link
+            db_company.is_main = brand.is_main if brand.is_main is not None else db_company.is_main
+            db_company.updated_at = datetime.utcnow()
+        # Insert new
+        else:
+            db_company = CompanyModel(
+                company_name=brand.company_name,
+                website=brand.website,
+                description=brand.description,
+                android_id=brand.android_id,
+                apple_id=brand.apple_id,
+                google_maps_links=maps_links,
+                trustpilot_link=brand.trustpilot_link,
+                portfolio_id=request.portfolio_id,
+                is_main=brand.is_main if brand.is_main is not None else False
+            )
+            db.add(db_company)
+            # add to map so duplicates in the same request don't cause double inserts
+            user_company_map[brand.company_name] = db_company
+            
+    db.commit()
+    logger.info(f"💾 Updated company database for user {current_user.email}")
     
     # Convert companies to dict format
     brands_list = [brand.dict() for brand in request.brands]
     
     # Add to background tasks
-    background_tasks.add_task(task_scrap_reviews, job_id, brands_list)
-    logger.info(f"✅ Scraping Job {job_id} started in background")
+    # 3. Add background task for scraping & subsequent analysis
+    background_tasks.add_task(task_scrap_reviews, job_id, [b.dict() for b in request.brands], request.portfolio_id)
+    logger.info(f"✅ Scraping Job {job_id} started in background (Portfolio: {request.portfolio_id})")
     
     return {"message": "Scraping started", "job_id": job_id}
 
@@ -727,6 +1283,343 @@ async def api_discover_maps(request: dict, background_tasks: BackgroundTasks, cu
     
     return {"job_id": discovery_job_id, "status": "processing"}
 
+@app.get("/api/user/reviews")
+async def get_user_reviews(
+    portfolio_id: int,
+    brand: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get all reviews from database for a portfolio."""
+    check_portfolio_access(db, current_user.id, portfolio_id)
+    query = db.query(Review).filter(Review.portfolio_id == portfolio_id)
+    
+    if brand:
+        query = query.filter(Review.brand == brand)
+    if start_date:
+        query = query.filter(Review.date >= start_date)
+    if end_date:
+        query = query.filter(Review.date <= end_date)
+        
+    reviews = query.all()
+    return [r.to_dict() for r in reviews]
+
+
+@app.get("/api/user/reviews/paginated")
+async def get_user_reviews_paginated(
+    portfolio_id: int,
+    page: int = 1,
+    page_size: int = 50,
+    sort_field: Optional[str] = "date",
+    sort_order: Optional[str] = "desc",
+    search: Optional[str] = None,
+    brand: Optional[str] = None,
+    platform: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get paginated reviews for a portfolio."""
+    check_portfolio_access(db, current_user.id, portfolio_id)
+    query = db.query(Review).filter(Review.portfolio_id == portfolio_id)
+    
+    if brand and brand != "all":
+        query = query.filter(Review.brand == brand)
+    if platform and platform != "all":
+        query = query.filter(Review.platform.ilike(f"%{platform}%"))
+    if start_date:
+        query = query.filter(Review.date >= start_date)
+    if end_date:
+        query = query.filter(Review.date <= end_date)
+        
+    if search:
+        search_term = f"%{search}%"
+        # Search in text, brand, platform, and JSON topics casted as text
+        query = query.filter(
+            or_(
+                Review.text.ilike(search_term),
+                Review.brand.ilike(search_term),
+                Review.platform.ilike(search_term),
+                cast(Review.topics, Text).ilike(search_term)
+            )
+        )
+        
+    total_count = query.count()
+    
+    # Sorting
+    if sort_field == "date":
+        query = query.order_by(desc(Review.date) if sort_order == "desc" else asc(Review.date))
+    elif sort_field == "rating":
+        query = query.order_by(desc(Review.rating) if sort_order == "desc" else asc(Review.rating))
+    elif sort_field == "sentiment":
+        query = query.order_by(desc(Review.sentiment) if sort_order == "desc" else asc(Review.sentiment))
+    elif sort_field == "brand":
+        query = query.order_by(desc(Review.brand) if sort_order == "desc" else asc(Review.brand))
+    elif sort_field == "platform":
+        query = query.order_by(desc(Review.platform) if sort_order == "desc" else asc(Review.platform))
+    else:
+        query = query.order_by(desc(Review.date)) # Default
+        
+    offset = (page - 1) * page_size
+    reviews = query.offset(offset).limit(page_size).all()
+    
+    return {
+        "items": [r.to_dict() for r in reviews],
+        "total": total_count,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": (total_count + page_size - 1) // page_size if page_size > 0 else 0
+    }
+
+
+@app.get("/api/download-analysis-csv")
+async def download_analysis_csv(portfolio_id: int, brand: Optional[str] = None, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Generate and return a CSV file of analyzed reviews for a specific portfolio."""
+    check_portfolio_access(db, current_user.id, portfolio_id)
+    
+    query = db.query(Review).filter(Review.portfolio_id == portfolio_id)
+    if brand and brand != "all":
+        query = query.filter(Review.brand == brand)
+        
+    reviews = query.all()
+    if not reviews:
+        raise HTTPException(status_code=404, detail="No reviews found for this selection")
+
+    import pandas as pd
+    import uuid
+    
+    df = pd.DataFrame([r.to_dict() for r in reviews])
+    
+    # Clean up topics/JSON for CSV
+    if 'topics' in df.columns:
+        df['topics'] = df['topics'].apply(lambda x: json.dumps(x) if x else "")
+
+    filename = f"analysis_{portfolio_id}_{uuid.uuid4().hex[:8]}.csv"
+    filepath = os.path.join("data", filename)
+    df.to_csv(filepath, index=False)
+    
+    return {"download_url": f"/data/{filename}"}
+ 
+@app.get("/api/user/dashboard-stats")
+async def get_dashboard_stats(
+    portfolio_id: int,
+    brand: Optional[str] = None,
+    job_id: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Returns aggregated DashboardData for a portfolio."""
+    check_portfolio_access(db, current_user.id, portfolio_id)
+    query = db.query(Review).filter(Review.portfolio_id == portfolio_id)
+
+    if brand and brand != "all":
+        brands_list = [b.strip() for b in brand.split(",")]
+        query = query.filter(Review.brand.in_(brands_list))
+    if job_id:
+        query = query.filter(Review.job_id == job_id)
+        
+    reviews = query.all()
+    if not reviews:
+        return None
+        
+    total_reviews = len(reviews)
+    positive = sum(1 for r in reviews if r.sentiment and r.sentiment.lower() == 'positive')
+    negative = sum(1 for r in reviews if r.sentiment and r.sentiment.lower() == 'negative')
+    neutral = sum(1 for r in reviews if r.sentiment and r.sentiment.lower() == 'neutral')
+    
+    pos_pct = (positive / total_reviews) * 100
+    neg_pct = (negative / total_reviews) * 100
+    neu_pct = (neutral / total_reviews) * 100
+    net_sentiment = pos_pct - neg_pct
+    
+    avg_rating = sum((r.rating or 0) for r in reviews) / total_reviews
+    
+    # Dimensions
+    dim_map = {}
+    brand_map = {}
+    platform_map = {}
+    week_map = {}
+    
+    for r in reviews:
+        b_name = r.brand or "Unknown"
+        
+        # Brand stats
+        if b_name not in brand_map:
+            brand_map[b_name] = []
+        brand_map[b_name].append(r)
+        
+        # Platform stats
+        plat = r.platform or "Unknown"
+        if 'App Store' in plat: plat = 'App Store'
+        if 'Google Play' in plat: plat = 'Google Play'
+        if 'Google Maps' in plat: plat = 'Google Maps'
+        if 'Trustpilot' in plat: plat = 'Trustpilot'
+        platform_map[plat] = platform_map.get(plat, 0) + 1
+        
+        # Sentiment trend by week
+        if r.date:
+            try:
+                # Naive ISO slice "2023-01-01"
+                date_str = r.date[:10]
+                d = datetime.fromisoformat(date_str)
+                iso_year, iso_week, _ = d.isocalendar()
+                wk_key = f"W-{iso_week}"
+                
+                if wk_key not in week_map:
+                    week_map[wk_key] = {"positive": 0, "negative": 0, "neutral": 0, "year": iso_year, "week": iso_week}
+                sent = (r.sentiment or "").lower()
+                if sent == "positive": week_map[wk_key]["positive"] += 1
+                elif sent == "negative": week_map[wk_key]["negative"] += 1
+                else: week_map[wk_key]["neutral"] += 1
+            except Exception:
+                pass
+
+        # Dimensions logic
+        topics = r.topics
+        if isinstance(topics, list):
+            for t in topics:
+                if t.get("mentioned") is False:
+                    continue
+                dim = t.get("dimension", "Unknown")
+                sent = (t.get("sentiment") or "Neutral").lower()
+                
+                if dim not in dim_map:
+                    dim_map[dim] = {"positive": 0, "negative": 0, "neutral": 0, "brands": {}}
+                
+                d_stats = dim_map[dim]
+                if b_name not in d_stats["brands"]:
+                    d_stats["brands"][b_name] = {"positive": 0, "negative": 0, "neutral": 0}
+                b_stats = d_stats["brands"][b_name]
+                
+                if sent == "positive":
+                    d_stats["positive"] += 1
+                    b_stats["positive"] += 1
+                elif sent == "negative":
+                    d_stats["negative"] += 1
+                    b_stats["negative"] += 1
+                else:
+                    d_stats["neutral"] += 1
+                    b_stats["neutral"] += 1
+
+    dimension_stats = []
+    for dim, stats in dim_map.items():
+        total = stats["positive"] + stats["negative"] + stats["neutral"]
+        d_pos_pct = (stats["positive"] / total * 100) if total > 0 else 0
+        d_neg_pct = (stats["negative"] / total * 100) if total > 0 else 0
+        d_neu_pct = (stats["neutral"] / total * 100) if total > 0 else 0
+        d_net = d_pos_pct - d_neg_pct
+        impact = (total / total_reviews) * d_net
+        
+        brand_stats_obj = {}
+        for b_name, b_stats in stats["brands"].items():
+            b_total = b_stats["positive"] + b_stats["negative"] + b_stats["neutral"]
+            b_pos_pct = (b_stats["positive"] / b_total * 100) if b_total > 0 else 0
+            b_neg_pct = (b_stats["negative"] / b_total * 100) if b_total > 0 else 0
+            b_neu_pct = (b_stats["neutral"] / b_total * 100) if b_total > 0 else 0
+            brand_stats_obj[b_name] = {
+                "positive": b_stats["positive"],
+                "negative": b_stats["negative"],
+                "neutral": b_stats["neutral"],
+                "positivePercent": b_pos_pct,
+                "negativePercent": b_neg_pct,
+                "neutralPercent": b_neu_pct,
+                "netSentiment": b_pos_pct - b_neg_pct
+            }
+            
+        dimension_stats.append({
+            "dimension": dim,
+            "total": total,
+            "positive": stats["positive"],
+            "negative": stats["negative"],
+            "neutral": stats["neutral"],
+            "positivePercent": d_pos_pct,
+            "negativePercent": d_neg_pct,
+            "neutralPercent": d_neu_pct,
+            "netSentiment": d_net,
+            "impact": impact,
+            "brandStats": brand_stats_obj
+        })
+        
+    dimension_stats.sort(key=lambda x: x["impact"], reverse=True)
+    top_strengths = [d for d in dimension_stats if d["impact"] > 0][:3]
+    top_weaknesses = sorted([d for d in dimension_stats if d["impact"] < 0], key=lambda x: x["impact"])[:3]
+    
+    brand_stats_list = []
+    for b_name, b_revs in brand_map.items():
+        b_total = len(b_revs)
+        b_avg = sum((r.rating or 0) for r in b_revs) / b_total
+        b_pos = sum(1 for r in b_revs if r.sentiment and r.sentiment.lower() == 'positive')
+        b_neg = sum(1 for r in b_revs if r.sentiment and r.sentiment.lower() == 'negative')
+        b_neu = sum(1 for r in b_revs if r.sentiment and r.sentiment.lower() == 'neutral')
+        b_pos_pct = (b_pos / b_total) * 100
+        b_neg_pct = (b_neg / b_total) * 100
+        brand_stats_list.append({
+            "brand": b_name,
+            "reviews": b_total,
+            "avgRating": b_avg,
+            "positivePercent": b_pos_pct,
+            "negativePercent": b_neg_pct,
+            "neutralPercent": (b_neu / b_total) * 100,
+            "netSentiment": b_pos_pct - b_neg_pct
+        })
+    brand_stats_list.sort(key=lambda x: x["reviews"], reverse=True)
+    
+    platform_stats = [
+        {"platform": p, "count": c, "percentage": (c / total_reviews) * 100}
+        for p, c in platform_map.items()
+    ]
+    platform_stats.sort(key=lambda x: x["count"], reverse=True)
+    
+    trend_data = []
+    for wk, wk_stats in week_map.items():
+        trend_data.append({
+            "week": wk,
+            "positive": wk_stats["positive"],
+            "negative": wk_stats["negative"],
+            "neutral": wk_stats["neutral"],
+            "_sort_key": (wk_stats["year"], wk_stats["week"])
+        })
+    trend_data.sort(key=lambda x: x["_sort_key"])
+    for t in trend_data:
+        del t["_sort_key"]
+    trend_data = trend_data[-12:]
+    
+    return {
+        "totalReviews": total_reviews,
+        "avgRating": avg_rating,
+        "negativePercent": neg_pct,
+        "positivePercent": pos_pct,
+        "neutralPercent": neu_pct,
+        "netSentiment": net_sentiment,
+        "sentimentTrend": trend_data,
+        "brandStats": brand_stats_list,
+        "dimensionStats": dimension_stats,
+        "topStrengths": top_strengths,
+        "topWeaknesses": top_weaknesses,
+        "platformStats": platform_stats
+    }
+
+
+@app.get("/api/reviews/{job_id}")
+async def get_reviews(
+    job_id: str,
+    brand: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get reviews from database for a given job, with optional brand filter."""
+    query = db.query(Review).filter(
+        Review.job_id == job_id,
+        Review.user_id == current_user.id
+    )
+    if brand:
+        query = query.filter(Review.brand == brand)
+    
+    reviews = query.all()
+    return [r.to_dict() for r in reviews]
 
 
 @app.post("/api/scrapped-data")
@@ -752,13 +1645,75 @@ async def api_scrapped_data2(request: dict, current_user: User = Depends(get_cur
     else:
         # Fallback/Mock
         return {"error": "Missing job_id or s3_key"}
+
+    # 1. Try reading existing dimensions for the user first
+    try:
+        db_session = SessionLocal()
+        existing_dims = db_session.query(Dimension).filter(Dimension.user_id == current_user.id).all()
+        if existing_dims:
+            logger.info(f"Using {len(existing_dims)} existing dimensions for user {current_user.id}")
+            # Map them back to the expected output format
+            formatted_dims = []
+            for d in existing_dims:
+                formatted_dims.append({
+                    "dimension": d.name,
+                    "description": d.description,
+                    "keywords": d.keywords
+                })
+            return {
+                "message": "Dimensions generated",
+                "body": {
+                    "dimensions": formatted_dims,
+                    "s3_bucket": S3_BUCKET_NAME if s3_key else "local",
+                    "s3_key": s3_key if s3_key else f"db://{job_id}"
+                }
+            }
+    except Exception as db_e:
+        logger.warning(f"Could not load dimensions from DB: {db_e}")
+    finally:
+        if 'db_session' in locals():
+            db_session.close()
         
     try:
-        # Read sample
+        # Try reading from database first
+        db_session = SessionLocal()
+        try:
+            db_reviews = db_session.query(Review).filter(Review.job_id == job_id).all()
+            if db_reviews:
+                logger.info(f"Reading {len(db_reviews)} reviews from database for job {job_id}")
+                sample_reviews = db_reviews[:min(10, len(db_reviews))]
+                sample = [r.to_dict() for r in sample_reviews]
+                dimensions = generate_dimensions(sample, OPENAI_API_KEY)
+                
+                # Save newly generated dimensions for the user
+                for dim in dimensions:
+                    new_dim = Dimension(
+                        user_id=current_user.id,
+                        name=dim.get("dimension", ""),
+                        description=dim.get("description", ""),
+                        keywords=dim.get("keywords", [])
+                    )
+                    db_session.add(new_dim)
+                db_session.commit()
+                
+                return {
+                    "message": "Dimensions generated",
+                    "body": {
+                        "dimensions": dimensions,
+                        "s3_bucket": S3_BUCKET_NAME if s3_key else "local",
+                        "s3_key": s3_key if s3_key else f"db://{job_id}"
+                    }
+                }
+        except Exception as db_e:
+            logger.warning(f"Could not load reviews from DB: {db_e}. Falling back to CSV/S3.")
+            db_reviews = None
+        finally:
+            db_session.close()
+
+        # Fallback to CSV/S3 if no DB records
         if os.path.exists(file_path):
             df = pd.read_csv(file_path)
         elif s3_key:
-             # Fallback to S3
              logger.info(f"Local file {file_path} not found, reading from S3: {s3_key}")
              s3 = boto3.client('s3', region_name=AWS_REGION)
              obj = s3.get_object(Bucket=S3_BUCKET_NAME, Key=s3_key)
@@ -771,9 +1726,27 @@ async def api_scrapped_data2(request: dict, current_user: User = Depends(get_cur
         
         dimensions = generate_dimensions(sample, OPENAI_API_KEY)
         
+        # Save newly generated dimensions for the user
+        db_session = SessionLocal()
+        try:
+            for dim in dimensions:
+                new_dim = Dimension(
+                    user_id=current_user.id,
+                    name=dim.get("dimension", ""),
+                    description=dim.get("description", ""),
+                    keywords=dim.get("keywords", [])
+                )
+                db_session.add(new_dim)
+            db_session.commit()
+        except Exception as db_e:
+            logger.warning(f"Could not save fallback dimensions to DB: {db_e}")
+        finally:
+            db_session.close()
+
+        
         return {
             "message": "Dimensions generated",
-            "body": { # replicating n8n structure slightly for frontend compatibility
+            "body": {
                 "dimensions": dimensions,
                 "s3_bucket": S3_BUCKET_NAME if s3_key else "local", 
                 "s3_key": s3_key if s3_key else file_path 
@@ -791,6 +1764,32 @@ async def api_final_analysis(request: dict, background_tasks: BackgroundTasks, c
     dimensions = request.get("dimensions", [])
     file_key = request.get("file_key")
     
+    # 1. Fetch portfolio's stored dimensions to ensure consistency
+    db_session = SessionLocal()
+    try:
+        # Determine portfolio_id (e.g., from request)
+        portfolio_id = request.get("portfolio_id")
+        if not portfolio_id:
+            # Fallback to user's first portfolio
+            if current_user.portfolios:
+                portfolio_id = current_user.portfolios[0].id
+
+        if not portfolio_id:
+            raise HTTPException(status_code=400, detail="Missing portfolio_id")
+
+        check_portfolio_access(db_session, current_user.id, portfolio_id)
+
+        user_dims = db_session.query(Dimension).filter(Dimension.portfolio_id == portfolio_id).all()
+        if user_dims:
+            dimensions = [{"dimension": d.name, "description": d.description, "keywords": d.keywords} for d in user_dims]
+            logger.info(f"Using {len(dimensions)} stored dimensions for portfolio {portfolio_id} in final analysis")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning(f"Failed to fetch dimensions for final analysis: {e}")
+    finally:
+        db_session.close()
+
     if not file_key: 
         raise HTTPException(status_code=400, detail="Missing file_key")
     
@@ -798,8 +1797,15 @@ async def api_final_analysis(request: dict, background_tasks: BackgroundTasks, c
     job_id = f"analysis_{str(uuid.uuid4())}"
     
     # Add to background tasks
-    background_tasks.add_task(task_final_analysis, job_id, file_key, dimensions)
-    logger.info(f"✅ Analysis Task {job_id} started in background for {file_key}")
+    # Determine portfolio_id (e.g., from first dimension or request if we add it there)
+    portfolio_id = request.get("portfolio_id")
+    if not portfolio_id:
+        # Fallback to user's first portfolio
+        if current_user.portfolios:
+            portfolio_id = current_user.portfolios[0].id
+
+    background_tasks.add_task(task_final_analysis, job_id, file_key, dimensions, portfolio_id)
+    logger.info(f"✅ Analysis Task {job_id} started in background for {file_key} (Portfolio: {portfolio_id})")
     
     return {
         "status": "success",
@@ -808,47 +1814,55 @@ async def api_final_analysis(request: dict, background_tasks: BackgroundTasks, c
     }
 
 @app.get("/api/download-result/{job_id}")
-async def download_result(job_id: str, current_user: User = Depends(get_current_user)):
+async def download_result(job_id: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """
-    Redirects to a fresh presigned URL for the result CSV.
-    This link is persistent because it generates a NEW token on every request.
+    Returns a CSV file containing the reviews for the given job_id directly from the Database.
     """
     try:
-        from fastapi.responses import RedirectResponse
+        from fastapi.responses import Response as FastApiResponse
+        import pandas as pd
         
-        # 1. Check Job Config (Unified)
-        s3_client = boto3.client('s3', region_name=AWS_REGION)
+        # Strip potential "analysis_" prefix if present to find original job_id
+        search_id = job_id
+        if job_id.startswith("analysis_"):
+            import re
+            match = re.search(r'([a-f0-9-]{36})', job_id)
+            if match:
+                search_id = match.group(1)
+            else:
+                search_id = job_id.replace("analysis_", "", 1)
+                
+        # 1. Fetch reviews from Database
+        query = db.query(Review).filter(
+            Review.job_id == search_id
+        )
         
-        # Try job_status first as it contains the specific result keys
-        try:
-            status_key = f"job_status/{job_id}"
-            response = s3_client.get_object(Bucket=S3_BUCKET_NAME, Key=status_key)
-            data = json.loads(response['Body'].read().decode('utf-8'))
+        # Verify access to this job's reviews via portfolio
+        # (Since reviews are in a portfolio, and user has access to portfolios)
+        if not first_review:
+            raise HTTPException(status_code=404, detail="Result not found or you don't have access")
             
-            s3_key = data.get("s3_key")
-            if s3_key:
-                url = generate_presigned_url(s3_key)
-                if url:
-                    return RedirectResponse(url=url)
-        except:
-            pass
-            
-        # Fallback to standard locations
-        possible_keys = [
-            f"analyzed_data/analyzed_reviews_{job_id}.csv", # If named by ID
-            f"scrapped_data/{job_id}.csv"
-        ]
+        check_portfolio_access(db, current_user.id, first_review.portfolio_id)
+        reviews = query.all()
+                
+        # 2. Convert to DataFrame and then to CSV
+        df = pd.DataFrame([r.to_dict() for r in reviews])
         
-        for key in possible_keys:
-             try:
-                s3_client.head_object(Bucket=S3_BUCKET_NAME, Key=key)
-                url = generate_presigned_url(key)
-                if url:
-                    return RedirectResponse(url=url)
-             except:
-                 continue
-
-        raise HTTPException(status_code=404, detail="Result file not found or expired")
+        # 3. Clean up internal columns
+        cols_to_drop = ['id']
+        df = df.drop(columns=[c for c in cols_to_drop if c in df.columns])
+            
+        csv_data = df.to_csv(index=False, encoding='utf-8-sig')
+        
+        # 4. Return as a downloadable CSV file
+        return FastApiResponse(
+            content=csv_data, 
+            media_type="text/csv", 
+            headers={
+                "Content-Disposition": f'attachment; filename="analyzed_reviews_{search_id}.csv"',
+                "Access-Control-Allow-Origin": "*"
+            }
+        )
         
     except HTTPException:
         raise

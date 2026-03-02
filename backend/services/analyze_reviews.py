@@ -6,9 +6,8 @@ import boto3
 import os
 import io
 import time
+from datetime import datetime
 from botocore.exceptions import NoCredentialsError
-
-from services.email_service import send_email_gmail
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -158,16 +157,57 @@ def generate_dimensions(reviews_sample, openai_key):
         logger.error(f"Error generating dimensions: {e}")
         return []
 
-def analyze_reviews(file_path, dimensions, openai_key, job_id=None, progress_callback=None):
+def analyze_reviews(file_path, dimensions, openai_key, portfolio_id, job_id=None, progress_callback=None):
     """
     Reads CSV, batches reviews, and sends to OpenAI for sentiment/topic analysis.
     Merges results back into DataFrame and uploads to S3.
     """
     error = None
     try:
-        if os.path.exists(file_path):
+        # Try loading from database first
+        from database import Review, SessionLocal
+        db_session = SessionLocal()
+        db_reviews = []
+        try: # This try block was missing/mis-indented
+            # We need the original scraping job_id to find reviews in DB.
+            # The job_id passed to this function is the analysis job ("analysis_xxx"),
+            # but the file_path contains the original scraping job UUID (e.g. "scrapped_data/uuid.csv").
+            review_job_id = None
+            import re
+            
+            if file_path:
+                match = re.search(r'([a-f0-9-]{36})', file_path)
+                if match:
+                    review_job_id = match.group(1)
+            
+            # Fallback to the provided job_id if we couldn't extract from file_path
+            if not review_job_id and job_id:
+                review_job_id = job_id
+                if review_job_id.startswith('analysis_'):
+                    match = re.search(r'([a-f0-9-]{36})', review_job_id)
+                    if match:
+                        review_job_id = match.group(1)
+                    else:
+                        review_job_id = review_job_id.replace('analysis_', '', 1)
+            
+            if review_job_id:
+                db_reviews = db_session.query(Review).filter(Review.job_id == review_job_id).order_by(Review.id).all()
+        finally:
+            db_session.close()
+
+        if db_reviews:
+            logger.info(f"Loading {len(db_reviews)} reviews from database for job {review_job_id}")
+            df = pd.DataFrame([r.to_dict() for r in db_reviews])
+        elif file_path and os.path.exists(file_path):
             df = pd.read_csv(file_path)
         else:
+            if not file_path:
+                error_msg = f"Could not find reviews in DB for {review_job_id} and no file_path provided."
+                logger.error(error_msg)
+                if job_id:
+                    update_analysis_status(job_id, "error", error_msg)
+                return {"error": error_msg}
+
             # Assume file_path is S3 Key
             s3_bucket = os.getenv("S3_BUCKET_NAME", "horus-voc-data-storage-v2-eu")
             logger.info(f"Reading from S3: {file_path}")
@@ -206,30 +246,22 @@ def analyze_reviews(file_path, dimensions, openai_key, job_id=None, progress_cal
     # Prepare dimensions list for prompt
     dims_list = "\n".join([f"- {d['dimension']}" for d in dimensions])
     
-    # Process reviews individually for better accuracy
+    # Process reviews concurrently for better performance
     total_reviews = len(df_sample)
-    logger.info(f"Processing {total_reviews} reviews individually...")
+    logger.info(f"Processing {total_reviews} reviews concurrently...")
     
-    for idx, row in df_sample.iterrows():
+    import concurrent.futures
+    import threading
+    
+    processed_count = 0
+    count_lock = threading.Lock()
+    
+    def process_review(idx, row):
+        nonlocal processed_count
         # Skip if already processed
         if idx in processed_indices:
-            continue
+            return None
 
-        review_num = idx + 1
-        
-        # Update progress every 5 reviews or on last one
-        if review_num % 5 == 0 or review_num == total_reviews:
-            msg = f"Analyzing review {review_num}/{total_reviews}..."
-            logger.info(msg)
-            if job_id:
-                update_analysis_status(job_id, "running", msg, review_num, total_reviews)
-            if progress_callback:
-                progress_callback(msg)
-        
-        # Checkpoint every 50 reviews
-        if job_id and len(analyzed_results) > 0 and len(analyzed_results) % 50 == 0:
-             save_checkpoint(job_id, analyzed_results)
-        
         review_text = row['text']
         
         # Build the detailed prompt
@@ -300,25 +332,47 @@ Remember: Return ONLY the JSON object. No explanations, no markdown code blocks,
             content = completion.choices[0].message.content
             result = json.loads(content)
             
-            # Store result with index
-            analyzed_results.append({
-                "index": idx,
-                "result": result
-            })
+            with count_lock:
+                # Store result with index
+                analyzed_results.append({
+                    "index": idx,
+                    "result": result
+                })
+                processed_count += 1
+                review_num = processed_count
+                
+                # Update progress every 10 reviews or on last one
+                if review_num % 10 == 0 or review_num == total_reviews:
+                    msg = f"Analyzing review {review_num}/{total_reviews}..."
+                    logger.info(msg)
+                    if job_id:
+                        update_analysis_status(job_id, "running", msg, review_num, total_reviews)
+                    if progress_callback:
+                        progress_callback(msg)
+                
+                # Checkpoint every 50 reviews
+                if job_id and len(analyzed_results) > 0 and len(analyzed_results) % 50 == 0:
+                     save_checkpoint(job_id, analyzed_results)
             
         except Exception as e:
             logger.error(f"Error analyzing review {idx}: {e}")
-            # Store empty result to maintain index alignment
-            analyzed_results.append({
-                "index": idx,
-                "result": {
-                    "sentiment": "Neutral",
-                    "emotion": "Indifferent",
-                    "confidence": 0.0,
-                    "topics": []
-                }
-            })
-            
+            with count_lock:
+                # Store empty result to maintain index alignment
+                analyzed_results.append({
+                    "index": idx,
+                    "result": {
+                        "sentiment": "Neutral",
+                        "emotion": "Indifferent",
+                        "confidence": 0.0,
+                        "topics": []
+                    }
+                })
+                processed_count += 1
+
+    # Run concurrently
+    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+        futures = [executor.submit(process_review, idx, row) for idx, row in df_sample.iterrows()]
+        concurrent.futures.wait(futures)
             
     # Merge results back into DataFrame
     logger.info("Merging analysis results into DataFrame...")
@@ -354,155 +408,100 @@ Remember: Return ONLY the JSON object. No explanations, no markdown code blocks,
                 df_sample.at[idx, 'topics'] = ''
     
     
-    # Save analyzed CSV locally first
-    timestamp = time.strftime("%Y%m%d_%H%M%S")
-    analyzed_filename = f"analyzed_reviews_{timestamp}.csv"
-    local_analyzed_path = f"data/{analyzed_filename}"
-    
-    # Ensure data directory exists
-    os.makedirs("data", exist_ok=True)
-    
-    df_sample.to_csv(local_analyzed_path, index=False)
-    logger.info(f"Saved analyzed reviews to {local_analyzed_path}")
-    
-    # Upload to S3
-    s3_bucket = os.getenv("S3_BUCKET_NAME", "horus-voc-data-storage-v2-eu")
-    s3_key = f"analyzed_data/{analyzed_filename}"
-    aws_region = os.getenv("AWS_REGION", "eu-central-1")
-    
+    # Save AI analysis results back to database
     try:
-        s3_client = boto3.client(
-            's3',
-            region_name=aws_region,
-            endpoint_url=f"https://s3.{aws_region}.amazonaws.com",
-            config=boto3.session.Config(signature_version='s3v4')
-        )
-        
-        s3_client.upload_file(local_analyzed_path, s3_bucket, s3_key)
-        logger.info(f"✅ Uploaded analyzed reviews to S3: s3://{s3_bucket}/{s3_key}")
-        
-        # Generate presigned download URL
-        download_url = s3_client.generate_presigned_url(
-            'get_object',
-            Params={'Bucket': s3_bucket, 'Key': s3_key},
-            ExpiresIn=86400  # 24 hours
-        )
-        
-        # Generate dashboard URL with persistent job_id
-        import urllib.parse
-        dashboard_base_url = os.getenv("DASHBOARD_URL", "http://localhost:3000")
-        # We use the persistent job_id parameter instead of the expiring csv_url
-        dashboard_link = f"{dashboard_base_url}/dashboard?job_id={job_id}"
-        
-        # Generate persistent download URL (redirects to fresh signed URL)
-        api_base_url = os.getenv("API_BASE_URL", "http://localhost:8000") # Ensure this is set in prod
-        persistent_download_url = f"{api_base_url}/api/download-result/{job_id}"
-        
-        board_link_msg = f"Dashboard Link: {dashboard_link}"
-        logger.info(f"📥 Download Link: {persistent_download_url}")
-        logger.info(f"📊 {board_link_msg}")
-        
-        # Send Email Notification
-        email_sent = False
-        if job_id:
-            import textwrap
+        from database import Review, SessionLocal
+        db_session = SessionLocal()
+        try:
+            review_job_id = None
+            import re
             
-            email_body = textwrap.dedent(f"""
-                Hello,
-                
-                Your VoC Analysis is complete!
-                
-                Analyzed {len(df_sample)} reviews.
-                
-                You can view the interactive dashboard here (Persistent Link):
-                {dashboard_link}
-                
-                Or download the raw data:
-                {persistent_download_url}
-                
-                Best regards,
-                HorusCX VoC Platform
-            """)
+            if file_path:
+                match = re.search(r'([a-f0-9-]{36})', file_path)
+                if match:
+                    review_job_id = match.group(1)
+                    
+            if not review_job_id and job_id:
+                review_job_id = job_id
+                if review_job_id.startswith('analysis_'):
+                    match = re.search(r'([a-f0-9-]{36})', review_job_id)
+                    if match:
+                        review_job_id = match.group(1)
+                    else:
+                        review_job_id = review_job_id.replace('analysis_', '', 1)
             
-            email_html = f"""
-            <html>
-                <body>
-                    <h2>VoC Analysis Complete ✅</h2>
-                    <p>We have successfully analyzed <strong>{len(df_sample)}</strong> reviews.</p>
-                    <p>
-                        <a href="{dashboard_link}" style="background-color: #4CAF50; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">
-                            Open Dashboard
-                        </a>
-                    </p>
-                    <p>Or <a href="{persistent_download_url}">download the raw CSV data</a>.</p>
-                    <hr>
-                    <p style="font-size: 12px; color: #666;">HorusCX VoC Intelligence Platform</p>
-                </body>
-            </html>
-            """
-            
-            # Send to fixed email as per request
-            target_email = "info@horuscx.com" 
-            try:
-                send_email_gmail(target_email, "VoC Analysis Complete - Dashboard Ready", email_body, email_html)
-                email_sent = True
-            except Exception as e:
-                logger.error(f"Failed to send email: {e}")
-
-        # Final Status Update (Completed)
-        if job_id:
-            update_analysis_status(
-                job_id, 
-                "completed", 
-                "Analysis complete!", 
-                len(df_sample), 
-                len(df_sample),
-                dashboard_link=dashboard_link,
-                csv_download_url=download_url,
-                s3_key=s3_key,
-                s3_bucket=s3_bucket
-            )
-            
-            # Clean up checkpoint after successful completion
-            try:
-                s3_client.delete_object(Bucket=s3_bucket, Key=get_checkpoint_key(job_id))
-                logger.info(f"🧹 Removed checkpoint for {job_id} after success.")
-            except Exception as e:
-                logger.warning(f"Failed to delete checkpoint: {e}")
-
-        
-        return {
-            "total_reviews": len(df),
-            "analyzed_count": len(df_sample),
-            "results": analyzed_results,
-            "s3_bucket": s3_bucket,
-            "s3_key": s3_key,
-            "download_url": download_url,
-            "dashboard_link": dashboard_link,
-            "local_path": local_analyzed_path,
-            "email_sent": email_sent
-        }
-        
-    except NoCredentialsError:
-        logger.error("❌ AWS credentials not found. Skipping S3 upload.")
-        return {
-            "total_reviews": len(df),
-            "analyzed_count": len(df_sample),
-            "results": analyzed_results,
-            "local_path": local_analyzed_path,
-            "error": "AWS credentials not configured"
-        }
+            if review_job_id:
+                # Order by id to ensure we match the dataframe order
+                db_reviews = db_session.query(Review).filter(
+                    Review.job_id == review_job_id
+                ).order_by(Review.id).all()
+                
+                if db_reviews:
+                    # Build a map from index to analysis result
+                    result_map = {item['index']: item['result'] for item in analyzed_results}
+                    
+                    for i, review in enumerate(db_reviews):
+                        if i in result_map:
+                            result = result_map[i]
+                            review.sentiment = result.get('sentiment', 'Neutral')
+                            review.emotion = result.get('emotion', 'Indifferent')
+                            review.confidence = result.get('confidence', 0.0)
+                            topics_list = result.get('topics', [])
+                            
+                            # Log conversion for debugging
+                            if i == 0:
+                                logger.info(f"Saving topics for review 0: {json.dumps(topics_list)}")
+                                
+                            # SQLAlchemy JSON column expects a list/dict, not a string
+                            review.topics = topics_list
+                            review.analyzed_at = datetime.utcnow()
+                    
+                    db_session.commit()
+                    logger.info(f"💾 Updated {len(db_reviews)} reviews with AI analysis in database")
+        finally:
+            db_session.close()
     except Exception as e:
-        logger.error(f"❌ Error uploading to S3: {e}")
-        error = e
-        return {
-            "total_reviews": len(df),
-            "analyzed_count": len(df_sample),
-            "results": analyzed_results,
-            "local_path": local_analyzed_path,
-            "error": str(e)
-        }
+        logger.error(f"❌ Failed to save AI analysis to database: {e}")
+
+    # --- DEPRECATED: CSV EXPORT AND S3 UPLOAD ---
+    # timestamp = time.strftime("%Y%m%d_%H%M%S")
+    # analyzed_filename = f"analyzed_reviews_{timestamp}.csv"
+    # local_analyzed_path = f"data/{analyzed_filename}"
+    # os.makedirs("data", exist_ok=True)
+    # df_sample.to_csv(local_analyzed_path, index=False)
+    # s3_client.upload_file(local_analyzed_path, s3_bucket, s3_key)
+    # --------------------------------------------
+    s3_bucket = os.getenv("S3_BUCKET_NAME", "horus-voc-data-storage-v2-eu")
+    s3_key = None
+    local_analyzed_path = None
+
+    # Final Status Update (Completed)
+    if job_id:
+        update_analysis_status(
+            job_id, 
+            "completed", 
+            "Analysis complete!", 
+            len(df_sample), 
+            len(df_sample),
+            s3_key=s3_key,
+            s3_bucket=s3_bucket
+        )
         
-    finally:
-         if job_id and error: # Update status if we crashed out completely
-             update_analysis_status(job_id, "error", str(error))
+        # Clean up checkpoint after successful completion
+        try:
+            s3_client = boto3.client('s3', region_name=os.getenv("AWS_REGION", "eu-central-1"))
+            s3_client.delete_object(Bucket=s3_bucket, Key=get_checkpoint_key(job_id))
+            logger.info(f"🧹 Removed checkpoint for {job_id} after success.")
+        except Exception as e:
+            logger.warning(f"Failed to delete checkpoint: {e}")
+
+    return {
+        "total_reviews": len(df),
+        "analyzed_count": len(df_sample),
+        "results": analyzed_results,
+        "s3_bucket": s3_bucket,
+        "s3_key": s3_key,
+        "local_path": local_analyzed_path
+    }
+        
+

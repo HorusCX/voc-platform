@@ -44,12 +44,14 @@ export default function LoginPage() {
                     <h2 className="mt-2 text-center text-3xl font-semibold tracking-tight text-foreground">
                         Sign in to VoC
                     </h2>
-                    <p className="mt-2 text-center text-sm text-muted-foreground">
-                        Or{" "}
-                        <Link href="/signup" className="font-medium text-primary hover:text-primary/80 transition-colors">
-                            create a new account
+                    <div className="mt-4 flex justify-center w-full">
+                        <Link
+                            href="/signup"
+                            className="w-full inline-flex justify-center items-center py-2.5 px-4 border border-primary text-sm font-medium rounded-lg text-primary bg-transparent hover:bg-primary/5 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary transition-colors"
+                        >
+                            Don&apos;t have an account? Sign Up
                         </Link>
-                    </p>
+                    </div>
                 </div>
 
                 <form className="mt-8 space-y-6" onSubmit={handleSubmit}>

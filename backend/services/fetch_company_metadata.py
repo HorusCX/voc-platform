@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 def analyze_url(url: str, gemini_key: str):
     """
-    Uses Gemini 3.0 Pro to extract company details and suggested competitors based on the URL.
+    Uses Gemini 3.1 Pro to extract company details and suggested competitors based on the URL.
     """
     try:
         # Initialize Gemini Client
@@ -50,7 +50,7 @@ def analyze_url(url: str, gemini_key: str):
         # Using Gemini 3 Pro Preview
         # Enabling Google Search Tool
         response = client.models.generate_content(
-            model='gemini-3-pro-preview',
+            model='gemini-3.1-pro-preview',
             contents=[
                 types.Content(
                     role="user",
