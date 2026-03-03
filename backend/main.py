@@ -15,6 +15,7 @@ import json
 import time
 
 import boto3
+import botocore
 from botocore.exceptions import NoCredentialsError
 
 # Load environment variables immediately
@@ -152,24 +153,34 @@ def generate_presigned_url(object_name, expiration=3600):
 
 # --- Background Task Wrappers (Migrated from Worker) ---
 def update_job_status(job_id: str, status: str, message: str, task_type: str="processing", **kwargs):
-    """Helper to update job status in S3 using Object Metadata for optimized polling"""
+    """Helper to update job status in S3. Lightweight meta in headers, full data in body."""
     try:
         s3 = boto3.client('s3', region_name=AWS_REGION)
         if S3_BUCKET_NAME:
-            metadata = {
+            # S3 Metadata only accepts ASCII characters and has a 2KB limit. 
+            # We only put the essential status tracking fields here.
+            safe_message = str(message).encode('ascii', 'ignore').decode('ascii')
+            metadata_headers = {
+                'job_id': str(job_id),
+                'status': str(status),
+                'message': safe_message,
+                'task_type': str(task_type)
+            }
+            
+            # The JSON body can be as large as we want, and include all kwargs (like scraped brands list)
+            full_data = {
                 'job_id': job_id,
                 'status': status,
                 'message': message,
                 'task_type': task_type
             }
-            # Merge additional metadata if provided
-            metadata.update({k: str(v) for k, v in kwargs.items()})
+            full_data.update(kwargs)
             
             s3.put_object(
                 Bucket=S3_BUCKET_NAME,
-                Key=f"status/{job_id}",
-                Body=json.dumps(metadata),
-                Metadata=metadata,
+                Key=f"job_status/{job_id}",
+                Body=json.dumps(full_data),
+                Metadata=metadata_headers,
                 ContentType='application/json'
             )
         logger.info(f"🔄 Job {job_id} status updated to: {status}")
@@ -384,7 +395,7 @@ def task_discover_locations(job_id: str, company_name: str, website: str, sessio
         logger.error(f"❌ Discovery failed for {job_id}: {e}")
         update_job_status(job_id, "error", str(e))
 
-def task_final_analysis(job_id: str, file_key: str, dimensions: List[str]):
+def task_final_analysis(job_id: str, file_key: str, dimensions: List[str], portfolio_id: int = None):
     logger.info(f"🧠 Starting Background Task: Final Analysis for {job_id} (File: {file_key})")
     
     # Update status to running immediately
@@ -396,8 +407,8 @@ def task_final_analysis(job_id: str, file_key: str, dimensions: List[str]):
         return
 
     try:
-        # Pass job_id to allow status updates within the service
-        result = analyze_reviews(file_key, dimensions, OPENAI_API_KEY, job_id=job_id)
+        # Pass job_id and portfolio_id to allow status updates within the service
+        result = analyze_reviews(file_key, dimensions, OPENAI_API_KEY, portfolio_id, job_id=job_id)
         if result.get("error"):
             logger.error(f"❌ Analysis failed: {result.get('error')}")
             update_job_status(job_id, "error", result.get('error'), task_type="analysis")
@@ -1121,8 +1132,11 @@ def check_status(job_id: str, current_user: User = Depends(get_current_user)):
             "task_type": metadata.get('task_type', 'unknown')
         }
         
-    except s3_client.exceptions.NoSuchKey:
-        return {"status": "pending", "message": "Job initializing..."}
+    except botocore.exceptions.ClientError as e:
+        if e.response['Error']['Code'] == '404':
+            return {"status": "pending", "message": "Job initializing..."}
+        logger.error(f"Error checking status for {job_id}: {e}")
+        return {"status": "pending", "message": "Fetching status..."}
     except Exception as e:
         logger.error(f"Error checking status for {job_id}: {e}")
         return {"status": "pending", "message": "Fetching status..."}
@@ -1790,11 +1804,13 @@ async def api_final_analysis(request: dict, background_tasks: BackgroundTasks, c
     finally:
         db_session.close()
 
-    if not file_key: 
-        raise HTTPException(status_code=400, detail="Missing file_key")
+    # file_key is no longer strictly required if we have job_id (DB mode)
+    job_id_param = request.get("job_id")
+    if not file_key and not job_id_param: 
+        raise HTTPException(status_code=400, detail="Missing file_key or job_id")
     
-    # Generate a job ID for tracking
-    job_id = f"analysis_{str(uuid.uuid4())}"
+    # Generate a new job ID for the analysis task itself
+    analysis_job_id = f"analysis_{str(uuid.uuid4())}"
     
     # Add to background tasks
     # Determine portfolio_id (e.g., from first dimension or request if we add it there)
@@ -1804,13 +1820,15 @@ async def api_final_analysis(request: dict, background_tasks: BackgroundTasks, c
         if current_user.portfolios:
             portfolio_id = current_user.portfolios[0].id
 
-    background_tasks.add_task(task_final_analysis, job_id, file_key, dimensions, portfolio_id)
-    logger.info(f"✅ Analysis Task {job_id} started in background for {file_key} (Portfolio: {portfolio_id})")
+    # If file_key is missing, fall back to passing job_id_param.
+    target_key = file_key or job_id_param
+    background_tasks.add_task(task_final_analysis, analysis_job_id, target_key, dimensions, portfolio_id)
+    logger.info(f"✅ Analysis Task {analysis_job_id} started in background for {target_key} (Portfolio: {portfolio_id})")
     
     return {
         "status": "success",
         "message": "Analysis started in background",
-        "job_id": job_id
+        "job_id": analysis_job_id
     }
 
 @app.get("/api/download-result/{job_id}")

@@ -16,6 +16,7 @@ def analyze_url(url: str, gemini_key: str):
         # Initialize Gemini Client
         client = genai.Client(api_key=gemini_key)
         
+        import requests
         system_prompt = """
         You are an intelligent business research assistant with access to Google Search.
         Your task is to take **a single input: a company website URL**, then:
@@ -39,34 +40,29 @@ def analyze_url(url: str, gemini_key: str):
                     "name": "Competitor Name",
                     "website": "Competitor Website URL",
                     "region": "Country/Region"
-                },
-                ... (limit to 5 competitors)
+                }
             ]
         }
         """
-
         user_message = f"Here is the company website URL: {url}"
-        
-        # Using Gemini 3 Pro Preview
-        # Enabling Google Search Tool
-        response = client.models.generate_content(
-            model='gemini-3.1-pro-preview',
-            contents=[
-                types.Content(
-                    role="user",
-                    parts=[
-                        types.Part(text=system_prompt + "\n\n" + user_message)
-                    ]
-                )
-            ],
-            config=types.GenerateContentConfig(
-                tools=[types.Tool(google_search=types.GoogleSearch())],
-                response_mime_type="application/json", 
-            )
-        )
+
+        # Use gemini-2.0-flash via REST API to avoid thread deadlocks with the SDK
+        endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={gemini_key}"
+        payload = {
+            "contents": [{
+                "role": "user",
+                "parts": [{"text": system_prompt + "\n\n" + user_message}]
+            }],
+            "generationConfig": {
+                "responseMimeType": "application/json"
+            }
+        }
+        resp = requests.post(endpoint, json=payload, timeout=60)
+        resp.raise_for_status()
+        resp_data = resp.json()
         
         # Extract text content
-        content = response.text
+        content = resp_data["candidates"][0]["content"]["parts"][0]["text"]
         logger.info(f"Raw JSON Content (first 200 chars): {content[:200]}...")
 
         data = json.loads(content)

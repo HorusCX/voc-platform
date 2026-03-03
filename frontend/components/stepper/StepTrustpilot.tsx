@@ -30,20 +30,22 @@ export function StepTrustpilot({ initialData, onComplete }: StepTrustpilotProps)
     const handleStartScraping = async () => {
         setLoading(true);
         setError(null);
-        // Generate a temporary job ID for immediate feedback or use backend response
-        // But scraping starts here, so we really just want to trigger it.
-        // Wait, previously StepAppIds triggered scraping. 
-        // Now StepTrustpilot is the last step before success?
-        // Yes, checking VocStepper.tsx: Step 3 was AppIds (calling `startScraping`).
-        // Now Step 4 (Trustpilot) will call `startScraping`.
-        // I need to ensure StepAppIds DOES NOT call startScraping anymore, just passes data!
+
+        if (!currentPortfolio?.id) {
+            setError("No portfolio selected.");
+            setLoading(false);
+            return;
+        }
 
         try {
             const brandsWithPortfolio = items.map(brand => ({
                 ...brand,
-                portfolio_id: currentPortfolio?.id
+                portfolio_id: currentPortfolio.id
             }));
-            const response = await VoCService.startScraping({ brands: brandsWithPortfolio });
+            const response = await VoCService.startScraping({
+                brands: brandsWithPortfolio,
+                portfolio_id: currentPortfolio.id
+            });
             onComplete({ job_id: response.job_id, brands: brandsWithPortfolio });
         } catch (err) {
             console.error(err);

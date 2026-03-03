@@ -83,6 +83,7 @@ export interface Portfolio {
 export interface ScrapRequest {
     brands: Company[];
     job_id?: string;
+    portfolio_id: number;
 }
 
 export interface JobStatus {
