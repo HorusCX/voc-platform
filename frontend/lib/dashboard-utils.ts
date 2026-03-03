@@ -97,7 +97,7 @@ export async function parseCSVFromURL(url: string): Promise<ReviewData[]> {
 
 
         if (url.startsWith('http') && !isS3Url) {
-            const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+            const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
             const proxyUrl = `${apiUrl}/api/proxy-csv?url=${encodeURIComponent(url)}`;
             console.log('Fetching CSV via proxy:', proxyUrl);
             response = await fetch(proxyUrl);
@@ -136,7 +136,7 @@ export async function parseCSVFromURL(url: string): Promise<ReviewData[]> {
  * Fetch reviews from the backend API (database-backed)
  */
 export async function fetchReviewsFromAPI(jobId: string): Promise<ReviewData[]> {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
     const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
 
     const headers: Record<string, string> = {};
@@ -169,7 +169,7 @@ export async function fetchReviewsFromAPI(jobId: string): Promise<ReviewData[]> 
  * Fetch all reviews for the current user from the backend API
  */
 export async function fetchUserReviewsFromAPI(filters?: { brand?: string; start_date?: string; end_date?: string }): Promise<ReviewData[]> {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
     const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
 
     const headers: Record<string, string> = {};
@@ -225,7 +225,7 @@ export async function fetchPaginatedUserReviewsFromAPI(paramsObj: {
     end_date?: string;
     portfolio_id?: number;
 }): Promise<PaginatedReviewsResponse> {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
     const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
 
     const headers: Record<string, string> = {};

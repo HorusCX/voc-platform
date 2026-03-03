@@ -90,7 +90,7 @@ export default function DimensionsPage() {
     const handleDelete = async () => {
         if (!editingDim) return;
         try {
-            const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+            const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
             const token = localStorage.getItem('access_token');
             const res = await fetch(`${apiUrl}/api/dimensions/${editingDim.id}`, {
                 method: "DELETE",
