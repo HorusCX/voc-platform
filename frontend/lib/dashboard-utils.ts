@@ -1,5 +1,5 @@
 import Papa from 'papaparse';
-import { VoCService } from './api';
+import { VoCService, RawReview, ReviewTopic, PaginatedResponse } from './api';
 
 export interface ReviewData {
     text: string;
@@ -146,7 +146,7 @@ export async function parseCSVFromURL(url: string): Promise<ReviewData[]> {
  * Fetch reviews from the backend API (database-backed)
  */
 export async function fetchReviewsFromAPI(jobId: string): Promise<ReviewData[]> {
-    const reviews = await VoCService.getReviewsByJob(jobId) as any[];
+    const reviews: RawReview[] = await VoCService.getReviewsByJob(jobId);
 
     // Convert DB format to dashboard format
     // DB returns topics as JSON array [{dimension, sentiment, mentioned}]
@@ -154,11 +154,11 @@ export async function fetchReviewsFromAPI(jobId: string): Promise<ReviewData[]> 
     return reviews.map((r: Record<string, unknown>) => ({
         ...r,
         topics: Array.isArray(r.topics)
-            ? (r.topics as Array<{ dimension?: string; sentiment?: string; mentioned?: boolean }>)
+            ? (r.topics as ReviewTopic[])
                 .filter((t) => t.mentioned !== false)
                 .map((t) => `${t.dimension || 'Unknown'} (${t.sentiment || 'Neutral'})`)
                 .join('; ')
-            : (r.topics || '')
+            : (r.topics as string || '')
     })) as ReviewData[];
 }
 
@@ -166,21 +166,21 @@ export async function fetchReviewsFromAPI(jobId: string): Promise<ReviewData[]> 
  * Fetch all reviews for the current user from the backend API
  */
 export async function fetchUserReviewsFromAPI(filters?: { brand?: string; start_date?: string; end_date?: string }): Promise<ReviewData[]> {
-    const params: Record<string, any> = {};
+    const params: Record<string, unknown> = {};
     if (filters?.brand) params.brand = filters.brand;
     if (filters?.start_date) params.start_date = filters.start_date;
     if (filters?.end_date) params.end_date = filters.end_date;
 
-    const reviews = await VoCService.getReviews(params) as any[];
+    const reviews: RawReview[] = await VoCService.getReviews(params);
 
     return reviews.map((r: Record<string, unknown>) => ({
         ...r,
         topics: Array.isArray(r.topics)
-            ? (r.topics as Array<{ dimension?: string; sentiment?: string; mentioned?: boolean }>)
+            ? (r.topics as ReviewTopic[])
                 .filter((t) => t.mentioned !== false)
                 .map((t) => `${t.dimension || 'Unknown'} (${t.sentiment || 'Neutral'})`)
                 .join('; ')
-            : (r.topics || '')
+            : (r.topics as string || '')
     })) as ReviewData[];
 }
 
@@ -207,7 +207,7 @@ export async function fetchPaginatedUserReviewsFromAPI(paramsObj: {
     end_date?: string;
     portfolio_id?: number;
 }): Promise<PaginatedReviewsResponse> {
-    const params: Record<string, any> = {};
+    const params: Record<string, unknown> = {};
     if (paramsObj.page) params.page = paramsObj.page;
     if (paramsObj.page_size) params.page_size = paramsObj.page_size;
     if (paramsObj.sort_field) params.sort_field = paramsObj.sort_field;
@@ -219,17 +219,17 @@ export async function fetchPaginatedUserReviewsFromAPI(paramsObj: {
     if (paramsObj.end_date) params.end_date = paramsObj.end_date;
     if (paramsObj.portfolio_id) params.portfolio_id = paramsObj.portfolio_id;
 
-    const responseData = await VoCService.getReviewsPaginated(params) as any;
+    const responseData: PaginatedResponse<RawReview> = await VoCService.getReviewsPaginated(params);
     return {
         ...responseData,
         items: responseData.items.map((r: Record<string, unknown>) => ({
             ...r,
             topics: Array.isArray(r.topics)
-                ? (r.topics as Array<{ dimension?: string; sentiment?: string; mentioned?: boolean }>)
+                ? (r.topics as ReviewTopic[])
                     .filter((t) => t.mentioned !== false)
                     .map((t) => `${t.dimension || 'Unknown'} (${t.sentiment || 'Neutral'})`)
                     .join('; ')
-                : (r.topics || '')
+                : (r.topics as string || '')
         })) as ReviewData[],
     };
 }

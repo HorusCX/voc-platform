@@ -26,6 +26,36 @@ api.interceptors.request.use(
 );
 
 // Define Types
+export interface ReviewTopic {
+    dimension?: string;
+    sentiment?: string;
+    mentioned?: boolean;
+}
+
+export interface RawReview {
+    id?: number;
+    text: string;
+    rating: number;
+    date: string;
+    source_user: string;
+    platform: string;
+    brand: string;
+    source_link: string;
+    sentiment: string;
+    emotion: string;
+    confidence: number;
+    topics: ReviewTopic[] | string;
+    [key: string]: unknown;
+}
+
+export interface PaginatedResponse<T> {
+    items: T[];
+    total: number;
+    page: number;
+    page_size: number;
+    total_pages: number;
+}
+
 export interface WebsiteRequest {
     website: string;
 }
@@ -178,7 +208,7 @@ export const VoCService = {
 
     // --- Reviews Methods ---
     getReviewsPaginated: async (params: { portfolio_id?: number; page?: number; page_size?: number;[key: string]: unknown }) => {
-        const response = await api.get('/api/user/reviews/paginated', { params });
+        const response = await api.get<PaginatedResponse<RawReview>>('/api/user/reviews/paginated', { params });
         return response.data;
     },
 
@@ -233,17 +263,17 @@ export const VoCService = {
     },
 
     getReviews: async (params?: Record<string, unknown>) => {
-        const response = await api.get('/api/user/reviews', { params });
+        const response = await api.get<RawReview[]>('/api/user/reviews', { params });
         return response.data;
     },
 
     getReviewsByJob: async (jobId: string) => {
-        const response = await api.get(`/api/reviews/${jobId}`);
+        const response = await api.get<RawReview[]>(`/api/reviews/${jobId}`);
         return response.data;
     },
 
     proxyCSV: async (url: string) => {
-        const response = await api.get(`/api/proxy-csv?url=${encodeURIComponent(url)}`);
+        const response = await api.get<string>(`/api/proxy-csv?url=${encodeURIComponent(url)}`);
         return response.data;
     }
 };
