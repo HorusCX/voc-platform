@@ -1622,7 +1622,17 @@ async def api_scrapped_data2(request: dict, current_user: User = Depends(get_cur
     s3_key = request.get("s3_key")
     job_id = request.get("job_id")
     portfolio_id = request.get("portfolio_id")
+    sample_reviews = request.get("sample_reviews")
+    description = request.get("description")
     
+    # Ensure portfolio_id is an integer if provided
+    if portfolio_id:
+        try:
+            portfolio_id = int(portfolio_id)
+        except (ValueError, TypeError):
+            logger.warning(f"Invalid portfolio_id type received: {type(portfolio_id)}")
+            portfolio_id = None
+            
     if not portfolio_id:
         if current_user.portfolios:
             portfolio_id = current_user.portfolios[0].id
@@ -1639,21 +1649,31 @@ async def api_scrapped_data2(request: dict, current_user: User = Depends(get_cur
 
     db_session = SessionLocal()
     try:
-        # 1. Try reading existing dimensions for the portfolio first
-        existing_dims = db_session.query(Dimension).filter(Dimension.portfolio_id == portfolio_id).all()
-        if existing_dims:
-            logger.info(f"Using {len(existing_dims)} existing dimensions for portfolio {portfolio_id}")
-            formatted_dims = [{"dimension": d.name, "description": d.description, "keywords": d.keywords} for d in existing_dims]
+        if sample_reviews:
+            logger.info(f"Generating dimensions from {len(sample_reviews)} sample reviews provided by frontend")
+            dimensions = generate_dimensions(sample_reviews, OPENAI_API_KEY)
+            
+            # Save newly generated dimensions for the portfolio
+            for dim in dimensions:
+                new_dim = Dimension(
+                    portfolio_id=portfolio_id,
+                    name=dim.get("dimension", ""),
+                    description=dim.get("description", ""),
+                    keywords=dim.get("keywords", [])
+                )
+                db_session.add(new_dim)
+            db_session.commit()
+            
             return {
                 "message": "Dimensions generated",
                 "body": {
-                    "dimensions": formatted_dims,
+                    "dimensions": dimensions,
                     "s3_bucket": S3_BUCKET_NAME if s3_key else "local",
                     "s3_key": s3_key if s3_key else f"db://{job_id}"
                 }
             }
 
-        # 2. Get reviews from DB for sampling
+        # 2. Get reviews from DB for sampling (fallback)
         db_reviews = db_session.query(Review).filter(
             Review.job_id == job_id,
             Review.portfolio_id == portfolio_id
@@ -1664,7 +1684,7 @@ async def api_scrapped_data2(request: dict, current_user: User = Depends(get_cur
             sample = [r.to_dict() for r in db_reviews]
             dimensions = generate_dimensions(sample, OPENAI_API_KEY)
             
-            # Save newly generated dimensions for the portfolio (NOT user_id)
+            # Save newly generated dimensions for the portfolio
             for dim in dimensions:
                 new_dim = Dimension(
                     portfolio_id=portfolio_id,
@@ -1718,7 +1738,7 @@ async def api_scrapped_data2(request: dict, current_user: User = Depends(get_cur
                      }
                  }
              else:
-                 return {"error": "No reviews found in DB or file to generate dimensions"}
+                 return {"error": "No reviews found in payload, DB or file to generate dimensions"}
 
     except Exception as e:
         logger.error(f"Error generating dimensions: {e}")

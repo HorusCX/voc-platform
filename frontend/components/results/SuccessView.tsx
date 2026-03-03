@@ -151,8 +151,11 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
             else if (typeof body === 'object' && body && (body as Record<string, unknown>).dimensions) dims = (body as Record<string, unknown>).dimensions as Record<string, unknown>[];
 
             if (dims.length === 0) {
-                console.warn("No dimensions returned from webhook");
-                alert("No dimensions were generated. Please check if the extracted data is sufficient.");
+                const errorMsg = resAny.error || "No dimensions were generated. Please check if the extracted data is sufficient.";
+                console.warn("No dimensions returned from webhook:", errorMsg);
+                alert(`Dimension Generation failed: ${errorMsg}`);
+                setSubmittingDims(false);
+                return;
             }
 
             setDimensions(dims);
