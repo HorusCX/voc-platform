@@ -97,10 +97,20 @@ export async function parseCSVFromURL(url: string): Promise<ReviewData[]> {
 
 
         if (url.startsWith('http') && !isS3Url) {
-            const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
-            const proxyUrl = `${apiUrl}/api/proxy-csv?url=${encodeURIComponent(url)}`;
-            console.log('Fetching CSV via proxy:', proxyUrl);
-            response = await fetch(proxyUrl);
+            console.log('Fetching CSV via proxy:', url);
+            const csvText = await VoCService.proxyCSV(url);
+            return new Promise((resolve, reject) => {
+                Papa.parse(csvText as string, {
+                    header: true,
+                    skipEmptyLines: true,
+                    complete: (results) => {
+                        resolve(results.data as ReviewData[]);
+                    },
+                    error: (error: Error) => {
+                        reject(error);
+                    },
+                });
+            });
         } else {
             // Direct fetch for Blob URLs OR S3 URLs
             console.log('Fetching CSV directly:', url);
@@ -136,20 +146,7 @@ export async function parseCSVFromURL(url: string): Promise<ReviewData[]> {
  * Fetch reviews from the backend API (database-backed)
  */
 export async function fetchReviewsFromAPI(jobId: string): Promise<ReviewData[]> {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
-    const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
-
-    const headers: Record<string, string> = {};
-    if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-    }
-
-    const res = await fetch(`${apiUrl}/api/reviews/${jobId}`, { headers });
-    if (!res.ok) {
-        throw new Error(`Failed to fetch reviews: ${res.status} ${res.statusText}`);
-    }
-
-    const reviews = await res.json();
+    const reviews = await VoCService.getReviewsByJob(jobId) as any[];
 
     // Convert DB format to dashboard format
     // DB returns topics as JSON array [{dimension, sentiment, mentioned}]
@@ -169,27 +166,12 @@ export async function fetchReviewsFromAPI(jobId: string): Promise<ReviewData[]> 
  * Fetch all reviews for the current user from the backend API
  */
 export async function fetchUserReviewsFromAPI(filters?: { brand?: string; start_date?: string; end_date?: string }): Promise<ReviewData[]> {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
-    const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
+    const params: Record<string, any> = {};
+    if (filters?.brand) params.brand = filters.brand;
+    if (filters?.start_date) params.start_date = filters.start_date;
+    if (filters?.end_date) params.end_date = filters.end_date;
 
-    const headers: Record<string, string> = {};
-    if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-    }
-
-    const params = new URLSearchParams();
-    if (filters?.brand) params.append('brand', filters.brand);
-    if (filters?.start_date) params.append('start_date', filters.start_date);
-    if (filters?.end_date) params.append('end_date', filters.end_date);
-
-    const queryString = params.toString() ? `?${params.toString()}` : '';
-
-    const res = await fetch(`${apiUrl}/api/user/reviews${queryString}`, { headers });
-    if (!res.ok) {
-        throw new Error(`Failed to fetch user reviews: ${res.status} ${res.statusText}`);
-    }
-
-    const reviews = await res.json();
+    const reviews = await VoCService.getReviews(params) as any[];
 
     return reviews.map((r: Record<string, unknown>) => ({
         ...r,
@@ -225,34 +207,19 @@ export async function fetchPaginatedUserReviewsFromAPI(paramsObj: {
     end_date?: string;
     portfolio_id?: number;
 }): Promise<PaginatedReviewsResponse> {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
-    const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
+    const params: Record<string, any> = {};
+    if (paramsObj.page) params.page = paramsObj.page;
+    if (paramsObj.page_size) params.page_size = paramsObj.page_size;
+    if (paramsObj.sort_field) params.sort_field = paramsObj.sort_field;
+    if (paramsObj.sort_order) params.sort_order = paramsObj.sort_order;
+    if (paramsObj.search) params.search = paramsObj.search;
+    if (paramsObj.brand && paramsObj.brand !== 'all') params.brand = paramsObj.brand;
+    if (paramsObj.platform && paramsObj.platform !== 'all') params.platform = paramsObj.platform;
+    if (paramsObj.start_date) params.start_date = paramsObj.start_date;
+    if (paramsObj.end_date) params.end_date = paramsObj.end_date;
+    if (paramsObj.portfolio_id) params.portfolio_id = paramsObj.portfolio_id;
 
-    const headers: Record<string, string> = {};
-    if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-    }
-
-    const params = new URLSearchParams();
-    if (paramsObj.page) params.append('page', paramsObj.page.toString());
-    if (paramsObj.page_size) params.append('page_size', paramsObj.page_size.toString());
-    if (paramsObj.sort_field) params.append('sort_field', paramsObj.sort_field);
-    if (paramsObj.sort_order) params.append('sort_order', paramsObj.sort_order);
-    if (paramsObj.search) params.append('search', paramsObj.search);
-    if (paramsObj.brand && paramsObj.brand !== 'all') params.append('brand', paramsObj.brand);
-    if (paramsObj.platform && paramsObj.platform !== 'all') params.append('platform', paramsObj.platform);
-    if (paramsObj.start_date) params.append('start_date', paramsObj.start_date);
-    if (paramsObj.end_date) params.append('end_date', paramsObj.end_date);
-    if (paramsObj.portfolio_id) params.append('portfolio_id', paramsObj.portfolio_id.toString());
-
-    const queryString = params.toString() ? `?${params.toString()}` : '';
-
-    const res = await fetch(`${apiUrl}/api/user/reviews/paginated${queryString}`, { headers });
-    if (!res.ok) {
-        throw new Error(`Failed to fetch paginated reviews: ${res.status} ${res.statusText}`);
-    }
-
-    const responseData = await res.json();
+    const responseData = await VoCService.getReviewsPaginated(params) as any;
     return {
         ...responseData,
         items: responseData.items.map((r: Record<string, unknown>) => ({

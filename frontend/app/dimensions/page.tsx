@@ -61,23 +61,11 @@ export default function DimensionsPage() {
                 portfolio_id: currentPortfolio.id
             };
 
-            const apiUrl = process.env.NEXT_PUBLIC_API_URL || ''; // Empty string = relative path (proxied)
-            const token = localStorage.getItem('access_token');
-            const method = editingDim ? "PUT" : "POST";
-            const url = editingDim
-                ? `${apiUrl}/api/dimensions/${editingDim.id}`
-                : `${apiUrl}/api/dimensions`;
-
-            const res = await fetch(url, {
-                method,
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(payload)
-            });
-
-            if (!res.ok) throw new Error("Failed to save dimension");
+            if (editingDim) {
+                await VoCService.updateDimension(editingDim.id, payload);
+            } else {
+                await VoCService.createDimension(payload);
+            }
 
             setIsModalOpen(false);
             setEditingDim(null);
@@ -90,14 +78,7 @@ export default function DimensionsPage() {
     const handleDelete = async () => {
         if (!editingDim) return;
         try {
-            const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
-            const token = localStorage.getItem('access_token');
-            const res = await fetch(`${apiUrl}/api/dimensions/${editingDim.id}`, {
-                method: "DELETE",
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-
-            if (!res.ok) throw new Error("Failed to delete dimension");
+            await VoCService.deleteDimension(editingDim.id);
 
             setIsDeleteModalOpen(false);
             setEditingDim(null);
@@ -115,14 +96,7 @@ export default function DimensionsPage() {
         setIsReanalyzing(true);
         setReanalyzeMessage(null);
         try {
-            const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
-            const token = localStorage.getItem('access_token');
-            const res = await fetch(`${apiUrl}/api/dimensions/reanalyze?portfolio_id=${currentPortfolio.id}`, {
-                method: "POST",
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-
-            if (!res.ok) throw new Error("Failed to trigger re-analysis");
+            await VoCService.reanalyzeDimensions(currentPortfolio.id);
             setReanalyzeMessage("Re-analysis started in the background. Your dashboard will update automatically as it progresses.");
         } catch (err) {
             alert("Error starting re-analysis: " + (err instanceof Error ? err.message : ""));

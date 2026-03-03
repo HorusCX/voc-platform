@@ -156,8 +156,28 @@ export const VoCService = {
         return response.data;
     },
 
+    createDimension: async (data: Record<string, unknown>) => {
+        const response = await api.post('/api/dimensions', data);
+        return response.data;
+    },
+
+    updateDimension: async (id: number, data: Record<string, unknown>) => {
+        const response = await api.put(`/api/dimensions/${id}`, data);
+        return response.data;
+    },
+
+    deleteDimension: async (id: number) => {
+        const response = await api.delete(`/api/dimensions/${id}`);
+        return response.data;
+    },
+
+    reanalyzeDimensions: async (portfolioId: number) => {
+        const response = await api.post(`/api/dimensions/reanalyze?portfolio_id=${portfolioId}`);
+        return response.data;
+    },
+
     // --- Reviews Methods ---
-    getReviewsPaginated: async (params: { portfolio_id?: number; page: number; page_size: number;[key: string]: unknown }) => {
+    getReviewsPaginated: async (params: { portfolio_id?: number; page?: number; page_size?: number;[key: string]: unknown }) => {
         const response = await api.get('/api/user/reviews/paginated', { params });
         return response.data;
     },
@@ -209,6 +229,21 @@ export const VoCService = {
 
     getPortfolioMembers: async (portfolioId: number) => {
         const response = await api.get<{ members: { id: number; email: string; role: string }[], invitations: { id: number; email: string; created_at: string }[] }>(`/api/portfolios/${portfolioId}/members`);
+        return response.data;
+    },
+
+    getReviews: async (params?: Record<string, unknown>) => {
+        const response = await api.get('/api/user/reviews', { params });
+        return response.data;
+    },
+
+    getReviewsByJob: async (jobId: string) => {
+        const response = await api.get(`/api/reviews/${jobId}`);
+        return response.data;
+    },
+
+    proxyCSV: async (url: string) => {
+        const response = await api.get(`/api/proxy-csv?url=${encodeURIComponent(url)}`);
         return response.data;
     }
 };
