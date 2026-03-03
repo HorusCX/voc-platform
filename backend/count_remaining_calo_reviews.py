@@ -1,8 +1,6 @@
 
 import sys
 import os
-from datetime import datetime, timedelta
-from sqlalchemy import func
 
 # Add backend to path to import database
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))

@@ -140,7 +140,7 @@ def scrape_trustpilot(brand_name, trustpilot_link, since_date=None):
                     })
                     found_reviews_this_step = True
                     
-                except Exception as e:
+                except Exception:
                     continue
             
             if not found_reviews_this_step:

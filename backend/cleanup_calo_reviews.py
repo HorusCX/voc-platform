@@ -1,8 +1,6 @@
 
 import sys
 import os
-from datetime import datetime
-from sqlalchemy import or_, and_
 
 # Add backend to path to import database
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))

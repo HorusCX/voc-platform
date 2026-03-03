@@ -1,7 +1,6 @@
 import pandas as pd
 from google_play_scraper import Sort, reviews
 import requests
-import json
 import os
 
 from datetime import datetime
@@ -30,7 +29,6 @@ from botocore.exceptions import NoCredentialsError
 logger = logging.getLogger(__name__)
 
 # Import Google Maps Scraper (lazy or direct)
-from services.fetch_maps_reviews import scrape_google_maps_reviews
 
 # Import DB models
 from database import Review, SessionLocal
@@ -102,7 +100,7 @@ def scrape_google_play(brand_name, app_id, since_date=None):
                 if len(country_reviews) > 2000: break
             
             return country_reviews
-        except Exception as e:
+        except Exception:
             return []
 
     all_reviews = []

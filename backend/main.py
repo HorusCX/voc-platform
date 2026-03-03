@@ -2,21 +2,19 @@ from fastapi import FastAPI, BackgroundTasks, HTTPException, Depends
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, Field
-from typing import List, Optional, Union, Dict
+from typing import List, Optional, Union
 from dotenv import load_dotenv
 import os
 import asyncio
 import uuid
 import pandas as pd
 from datetime import datetime, timedelta
-import urllib.parse
 import logging
 import json
 import time
 
 import boto3
 import botocore
-from botocore.exceptions import NoCredentialsError
 
 # Load environment variables immediately
 from pathlib import Path
@@ -34,7 +32,7 @@ from services.analyze_reviews import generate_dimensions, analyze_reviews
 from database import init_db, get_db, User, CompanyModel, Review, Dimension, get_user_limits, SessionLocal, Portfolio, user_portfolios, PortfolioInvitation
 from auth import (
     hash_password, verify_password, create_access_token,
-    get_current_user, require_admin, is_admin_email
+    get_current_user, is_admin_email
 )
 from services.email_service import send_invitation_email
 from sqlalchemy.orm import Session
@@ -46,6 +44,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME", "horus-voc-data-storage-v2-eu")
 AWS_REGION = os.getenv("AWS_REGION", "eu-central-1")
+DASHBOARD_URL = os.getenv("DASHBOARD_URL", "http://localhost:3000")
 
 
 
@@ -736,8 +735,8 @@ async def invite_to_portfolio(
         db.commit()
         
         # Trigger email in background
-        # Update this with your actual frontend URL
-        invite_link = f"http://localhost:3000/invite/accept?token={token}&email={email}"
+        # Use DASHBOARD_URL for the frontend link
+        invite_link = f"{DASHBOARD_URL}/invite/accept?token={token}&email={email}"
         background_tasks.add_task(send_invitation_email, email, portfolio.name, invite_link)
         
         logger.info(f"✉️ Invitation sent to {email} for portfolio '{portfolio.name}'")

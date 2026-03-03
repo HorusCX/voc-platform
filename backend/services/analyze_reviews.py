@@ -4,10 +4,7 @@ import json
 import logging
 import boto3
 import os
-import io
-import time
 from datetime import datetime
-from botocore.exceptions import NoCredentialsError
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

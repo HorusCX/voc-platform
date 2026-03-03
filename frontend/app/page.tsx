@@ -8,11 +8,15 @@ import { useEffect, useState } from "react";
 import { Loader2, ArrowLeft } from "lucide-react";
 import { SavedCompaniesList } from "@/components/companies/SavedCompaniesList";
 
+import { usePortfolio } from "@/contexts/PortfolioContext";
+import { VoCService } from "@/lib/api";
+
 export default function Home() {
   const { user, isLoading } = useAuth();
+  const { portfolios, refreshPortfolios, setCurrentPortfolioId } = usePortfolio();
   const router = useRouter();
-
   const [view, setView] = useState<"companies" | "stepper">("companies");
+  const [isCreatingPortfolio, setIsCreatingPortfolio] = useState(false);
 
   useEffect(() => {
     if (!isLoading && !user) {
@@ -20,15 +24,34 @@ export default function Home() {
     }
   }, [user, isLoading, router]);
 
+  const handleStartNew = async () => {
+    if (portfolios.length === 0) {
+      setIsCreatingPortfolio(true);
+      try {
+        const newPortfolio = await VoCService.createPortfolio("My Portfolio");
+        await refreshPortfolios();
+        setCurrentPortfolioId(newPortfolio.id);
+      } catch (error) {
+        console.error("Failed to create default portfolio:", error);
+        // Optionally show an error toast here
+      } finally {
+        setIsCreatingPortfolio(false);
+      }
+    }
+    setView("stepper");
+  };
+
   const resetView = () => {
     setView("companies");
   };
 
-  if (isLoading || !user) {
+  if (isLoading || !user || isCreatingPortfolio) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
-        <p className="text-muted-foreground">Verifying session...</p>
+        <p className="text-muted-foreground">
+          {isCreatingPortfolio ? "Initializing workspace..." : "Verifying session..."}
+        </p>
       </div>
     );
   }
@@ -59,7 +82,7 @@ export default function Home() {
         {view === "companies" && (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
             <SavedCompaniesList
-              onStartNew={() => setView("stepper")}
+              onStartNew={handleStartNew}
             />
           </div>
         )}

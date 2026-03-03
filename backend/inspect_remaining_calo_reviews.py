@@ -1,8 +1,6 @@
 
 import sys
 import os
-from datetime import datetime, timedelta
-from sqlalchemy import func
 
 # Add backend to path to import database
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -21,7 +19,7 @@ def inspect_remaining_calo_reviews():
             Review.date >= "2026-02-21"
         ).all()
         
-        print(f"--- Google Play Store (>= 2026-02-21) ---")
+        print("--- Google Play Store (>= 2026-02-21) ---")
         for r in play_reviews:
             print(f"ID: {r.id}, Date: {r.date}, Created At: {r.created_at}, Job ID: {r.job_id}")
         
@@ -32,7 +30,7 @@ def inspect_remaining_calo_reviews():
             Review.date >= "2026-02-11"
         ).all()
         
-        print(f"\n--- App Store (>= 2026-02-11) ---")
+        print("\n--- App Store (>= 2026-02-11) ---")
         for r in app_reviews[:5]: # Show first 5
              print(f"ID: {r.id}, Date: {r.date}, Created At: {r.created_at}, Job ID: {r.job_id}")
         print(f"Total: {len(app_reviews)}")
@@ -44,7 +42,7 @@ def inspect_remaining_calo_reviews():
             Review.date >= "2026-02-01"
         ).all()
         
-        print(f"\n--- Google Maps (>= 2026-02-01) ---")
+        print("\n--- Google Maps (>= 2026-02-01) ---")
         for r in maps_reviews[:5]:
             print(f"ID: {r.id}, Date: {r.date}, Created At: {r.created_at}, Job ID: {r.job_id}")
         print(f"Total: {len(maps_reviews)}")
@@ -55,7 +53,7 @@ def inspect_remaining_calo_reviews():
             Review.platform == "Trustpilot"
         ).all()
         
-        print(f"\n--- Trustpilot (Lifetime) ---")
+        print("\n--- Trustpilot (Lifetime) ---")
         for r in tp_reviews[:5]:
             print(f"ID: {r.id}, Date: {r.date}, Created At: {r.created_at}, Job ID: {r.job_id}")
         print(f"Total: {len(tp_reviews)}")

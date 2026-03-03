@@ -1,6 +1,6 @@
 import logging
 from sqlalchemy import text
-from database import SessionLocal, User, Portfolio
+from database import SessionLocal, User
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

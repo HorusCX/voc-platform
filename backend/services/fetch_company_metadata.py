@@ -1,8 +1,6 @@
 from google import genai
-from google.genai import types
 import json
 import logging
-import re
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
