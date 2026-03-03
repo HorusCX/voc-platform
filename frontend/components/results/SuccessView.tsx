@@ -5,6 +5,7 @@ import { VoCService } from "@/lib/api";
 import { Card } from "../ui/Card";
 import { Loader2, CheckCircle, Send } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { usePortfolio } from "@/contexts/PortfolioContext";
 
 interface SuccessViewProps {
     jobId: string;
@@ -35,6 +36,7 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
     const [data, setData] = useState<VoCResponse | null>(null);
     const [dimensions, setDimensions] = useState<Record<string, unknown>[]>([]); // To hold the dimension form data
     const [submittingDims, setSubmittingDims] = useState(false);
+    const { currentPortfolio } = usePortfolio();
 
     // Analysis State
     const [analysisJobId, setAnalysisJobId] = useState<string | null>(null);
@@ -122,13 +124,18 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
                 return null;
             };
 
+            if (!currentPortfolio?.id) {
+                alert("No portfolio selected. Please refresh.");
+                return;
+            }
+
             const payload = {
                 s3_bucket: extract('s3_bucket'),
                 s3_key: extract('s3_key'),
                 description: extract('description'),
                 sample_reviews: extract('sample_reviews'),
-                // Fallback if direct fields aren't populated but we have access to metadata
-                job_id: jobId
+                job_id: jobId,
+                portfolio_id: currentPortfolio.id
             };
 
             const result = await VoCService.sendToWebhook(payload);
@@ -171,11 +178,17 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
 
     const handleSubmitDimensions = async () => {
         setSubmittingDims(true);
+        if (!currentPortfolio?.id) {
+            alert("No portfolio selected.");
+            return;
+        }
+
         try {
             const response = await VoCService.submitDimensions({
                 dimensions: dimensions,
                 bucket_name: data?.s3_bucket,
-                file_key: data?.s3_key || data?.file_path
+                file_key: data?.s3_key || data?.file_path,
+                portfolio_id: currentPortfolio.id
             });
 
             // Start analysis tracking

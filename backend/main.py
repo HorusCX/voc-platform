@@ -395,29 +395,7 @@ def task_discover_locations(job_id: str, company_name: str, website: str, sessio
         logger.error(f"❌ Discovery failed for {job_id}: {e}")
         update_job_status(job_id, "error", str(e))
 
-def task_final_analysis(job_id: str, file_key: str, dimensions: List[str], portfolio_id: int = None):
-    logger.info(f"🧠 Starting Background Task: Final Analysis for {job_id} (File: {file_key})")
-    
-    # Update status to running immediately
-    update_job_status(job_id, "running", "Initializing analysis...", task_type="analysis")
-
-    if not OPENAI_API_KEY:
-        logger.error("❌ OpenAI API Key missing")
-        update_job_status(job_id, "error", "Server configuration error: OpenAI Key missing", task_type="analysis")
-        return
-
-    try:
-        # Pass job_id and portfolio_id to allow status updates within the service
-        result = analyze_reviews(file_key, dimensions, OPENAI_API_KEY, portfolio_id, job_id=job_id)
-        if result.get("error"):
-            logger.error(f"❌ Analysis failed: {result.get('error')}")
-            update_job_status(job_id, "error", result.get('error'), task_type="analysis")
-        else:
-            logger.info(f"✅ Analysis completed. Download URL: {result.get('download_url')}")
-            # analyze_reviews already updates status to completed
-    except Exception as e:
-        logger.error(f"❌ Analysis crashed: {e}")
-        update_job_status(job_id, "error", f"Analysis crashed: {str(e)}", task_type="analysis")
+# Duplicate task_final_analysis was removed here (it was redundant with the one at line 281)
 
 def task_reanalyze_all(portfolio_id: int):
     """
@@ -1638,42 +1616,34 @@ async def get_reviews(
 
 @app.post("/api/scrapped-data")
 async def api_scrapped_data2(request: dict, current_user: User = Depends(get_current_user)):
-    # n8n workflow "VoC Data Collection" -> trigger 1 of "VoC Analysis"
-    # Expected payload via main flow: just needs s3_key or dimensions generation
-    
-    # Minimal implementation based on plan:
-    # "Generates Analysis Dimensions using OpenAI"
-    
+    """
+    Generates Analysis Dimensions using OpenAI based on scrapped data.
+    """
     s3_key = request.get("s3_key")
-    # For local dev, we might just look up job ID or file path
-    # If s3_key is actually a job_id (from our file naming convention), let's use that.
+    job_id = request.get("job_id")
+    portfolio_id = request.get("portfolio_id")
     
-    job_id = s3_key.replace("scrapped_data/", "").replace(".csv", "") if s3_key else None
-    
-    if not job_id and "job_id" in request:
-        job_id = request["job_id"]
-        
-    # Read the data locally
-    if job_id:
-        file_path = f"data/{job_id}.csv" 
-    else:
-        # Fallback/Mock
+    if not portfolio_id:
+        if current_user.portfolios:
+            portfolio_id = current_user.portfolios[0].id
+            
+    if not portfolio_id:
+        return {"error": "Missing portfolio_id"}
+
+    # Extract job_id from s3_key if not provided explicitly
+    if not job_id and s3_key:
+        job_id = s3_key.replace("scrapped_data/", "").replace(".csv", "")
+
+    if not job_id:
         return {"error": "Missing job_id or s3_key"}
 
-    # 1. Try reading existing dimensions for the user first
+    db_session = SessionLocal()
     try:
-        db_session = SessionLocal()
-        existing_dims = db_session.query(Dimension).filter(Dimension.user_id == current_user.id).all()
+        # 1. Try reading existing dimensions for the portfolio first
+        existing_dims = db_session.query(Dimension).filter(Dimension.portfolio_id == portfolio_id).all()
         if existing_dims:
-            logger.info(f"Using {len(existing_dims)} existing dimensions for user {current_user.id}")
-            # Map them back to the expected output format
-            formatted_dims = []
-            for d in existing_dims:
-                formatted_dims.append({
-                    "dimension": d.name,
-                    "description": d.description,
-                    "keywords": d.keywords
-                })
+            logger.info(f"Using {len(existing_dims)} existing dimensions for portfolio {portfolio_id}")
+            formatted_dims = [{"dimension": d.name, "description": d.description, "keywords": d.keywords} for d in existing_dims]
             return {
                 "message": "Dimensions generated",
                 "body": {
@@ -1682,148 +1652,120 @@ async def api_scrapped_data2(request: dict, current_user: User = Depends(get_cur
                     "s3_key": s3_key if s3_key else f"db://{job_id}"
                 }
             }
-    except Exception as db_e:
-        logger.warning(f"Could not load dimensions from DB: {db_e}")
-    finally:
-        if 'db_session' in locals():
-            db_session.close()
-        
-    try:
-        # Try reading from database first
-        db_session = SessionLocal()
-        try:
-            db_reviews = db_session.query(Review).filter(Review.job_id == job_id).all()
-            if db_reviews:
-                logger.info(f"Reading {len(db_reviews)} reviews from database for job {job_id}")
-                sample_reviews = db_reviews[:min(10, len(db_reviews))]
-                sample = [r.to_dict() for r in sample_reviews]
-                dimensions = generate_dimensions(sample, OPENAI_API_KEY)
-                
-                # Save newly generated dimensions for the user
-                for dim in dimensions:
-                    new_dim = Dimension(
-                        user_id=current_user.id,
-                        name=dim.get("dimension", ""),
-                        description=dim.get("description", ""),
-                        keywords=dim.get("keywords", [])
-                    )
-                    db_session.add(new_dim)
-                db_session.commit()
-                
-                return {
-                    "message": "Dimensions generated",
-                    "body": {
-                        "dimensions": dimensions,
-                        "s3_bucket": S3_BUCKET_NAME if s3_key else "local",
-                        "s3_key": s3_key if s3_key else f"db://{job_id}"
-                    }
-                }
-        except Exception as db_e:
-            logger.warning(f"Could not load reviews from DB: {db_e}. Falling back to CSV/S3.")
-            db_reviews = None
-        finally:
-            db_session.close()
 
-        # Fallback to CSV/S3 if no DB records
-        if os.path.exists(file_path):
-            df = pd.read_csv(file_path)
-        elif s3_key:
-             logger.info(f"Local file {file_path} not found, reading from S3: {s3_key}")
-             s3 = boto3.client('s3', region_name=AWS_REGION)
-             obj = s3.get_object(Bucket=S3_BUCKET_NAME, Key=s3_key)
-             df = pd.read_csv(obj['Body'])
-        else:
-             raise FileNotFoundError(f"File not found locally ({file_path}) and no s3_key provided")
-        # Replace NaN/Infinity values for JSON serialization
-        sample_df = df.sample(n=min(10, len(df))).fillna('').replace([float('inf'), float('-inf')], '')
-        sample = sample_df.to_dict(orient='records')
+        # 2. Get reviews from DB for sampling
+        db_reviews = db_session.query(Review).filter(
+            Review.job_id == job_id,
+            Review.portfolio_id == portfolio_id
+        ).limit(10).all()
         
-        dimensions = generate_dimensions(sample, OPENAI_API_KEY)
-        
-        # Save newly generated dimensions for the user
-        db_session = SessionLocal()
-        try:
+        if db_reviews:
+            logger.info(f"Generating dimensions from {len(db_reviews)} reviews in DB for job {job_id}")
+            sample = [r.to_dict() for r in db_reviews]
+            dimensions = generate_dimensions(sample, OPENAI_API_KEY)
+            
+            # Save newly generated dimensions for the portfolio (NOT user_id)
             for dim in dimensions:
                 new_dim = Dimension(
-                    user_id=current_user.id,
+                    portfolio_id=portfolio_id,
                     name=dim.get("dimension", ""),
                     description=dim.get("description", ""),
                     keywords=dim.get("keywords", [])
                 )
                 db_session.add(new_dim)
             db_session.commit()
-        except Exception as db_e:
-            logger.warning(f"Could not save fallback dimensions to DB: {db_e}")
-        finally:
-            db_session.close()
-
-        
-        return {
-            "message": "Dimensions generated",
-            "body": {
-                "dimensions": dimensions,
-                "s3_bucket": S3_BUCKET_NAME if s3_key else "local", 
-                "s3_key": s3_key if s3_key else file_path 
+            
+            return {
+                "message": "Dimensions generated",
+                "body": {
+                    "dimensions": dimensions,
+                    "s3_bucket": S3_BUCKET_NAME if s3_key else "local",
+                    "s3_key": s3_key if s3_key else f"db://{job_id}"
+                }
             }
-        }
+        else:
+             # Fallback to CSV/S3 if no DB records found
+             file_path = f"data/{job_id}.csv"
+             df = None
+             if os.path.exists(file_path):
+                 df = pd.read_csv(file_path)
+             elif s3_key:
+                 s3 = boto3.client('s3', region_name=AWS_REGION)
+                 obj = s3.get_object(Bucket=S3_BUCKET_NAME, Key=s3_key)
+                 df = pd.read_csv(obj['Body'])
+             
+             if df is not None:
+                 sample_df = df.sample(n=min(10, len(df))).fillna('').replace([float('inf'), float('-inf')], '')
+                 sample = sample_df.to_dict(orient='records')
+                 dimensions = generate_dimensions(sample, OPENAI_API_KEY)
+                 
+                 for dim in dimensions:
+                     new_dim = Dimension(
+                         portfolio_id=portfolio_id,
+                         name=dim.get("dimension", ""),
+                         description=dim.get("description", ""),
+                         keywords=dim.get("keywords", [])
+                     )
+                     db_session.add(new_dim)
+                 db_session.commit()
+                 
+                 return {
+                     "message": "Dimensions generated",
+                     "body": {
+                         "dimensions": dimensions,
+                         "s3_bucket": S3_BUCKET_NAME if s3_key else "local",
+                         "s3_key": s3_key if s3_key else file_path
+                     }
+                 }
+             else:
+                 return {"error": "No reviews found in DB or file to generate dimensions"}
+
     except Exception as e:
-        print(f"Error: {e}")
+        logger.error(f"Error generating dimensions: {e}")
         return {"error": str(e)}
+    finally:
+        db_session.close()
 
 
 
 @app.post("/api/final-analysis")
 async def api_final_analysis(request: dict, background_tasks: BackgroundTasks, current_user: User = Depends(get_current_user)):
-    # Expected: { dimensions: [...], file_key: ... }
+    # Expected: { dimensions: [...], file_key: ..., portfolio_id: ... }
     dimensions = request.get("dimensions", [])
     file_key = request.get("file_key")
+    portfolio_id = request.get("portfolio_id")
     
-    # 1. Fetch portfolio's stored dimensions to ensure consistency
+    if not portfolio_id:
+        # Fallback only if absolutely necessary, but preferred to be explicit from frontend
+        if current_user.portfolios:
+            portfolio_id = current_user.portfolios[0].id
+
+    if not portfolio_id:
+        raise HTTPException(status_code=400, detail="Missing portfolio_id")
+
+    # Verify access
     db_session = SessionLocal()
     try:
-        # Determine portfolio_id (e.g., from request)
-        portfolio_id = request.get("portfolio_id")
-        if not portfolio_id:
-            # Fallback to user's first portfolio
-            if current_user.portfolios:
-                portfolio_id = current_user.portfolios[0].id
-
-        if not portfolio_id:
-            raise HTTPException(status_code=400, detail="Missing portfolio_id")
-
         check_portfolio_access(db_session, current_user.id, portfolio_id)
-
-        user_dims = db_session.query(Dimension).filter(Dimension.portfolio_id == portfolio_id).all()
-        if user_dims:
-            dimensions = [{"dimension": d.name, "description": d.description, "keywords": d.keywords} for d in user_dims]
-            logger.info(f"Using {len(dimensions)} stored dimensions for portfolio {portfolio_id} in final analysis")
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.warning(f"Failed to fetch dimensions for final analysis: {e}")
+        
+        # If dimensions not sent, try fetching stored ones
+        if not dimensions:
+            user_dims = db_session.query(Dimension).filter(Dimension.portfolio_id == portfolio_id).all()
+            if user_dims:
+                dimensions = [{"dimension": d.name, "description": d.description, "keywords": d.keywords} for d in user_dims]
+                logger.info(f"Using {len(dimensions)} stored dimensions for portfolio {portfolio_id}")
     finally:
         db_session.close()
 
-    # file_key is no longer strictly required if we have job_id (DB mode)
     job_id_param = request.get("job_id")
     if not file_key and not job_id_param: 
         raise HTTPException(status_code=400, detail="Missing file_key or job_id")
     
-    # Generate a new job ID for the analysis task itself
     analysis_job_id = f"analysis_{str(uuid.uuid4())}"
-    
-    # Add to background tasks
-    # Determine portfolio_id (e.g., from first dimension or request if we add it there)
-    portfolio_id = request.get("portfolio_id")
-    if not portfolio_id:
-        # Fallback to user's first portfolio
-        if current_user.portfolios:
-            portfolio_id = current_user.portfolios[0].id
-
-    # If file_key is missing, fall back to passing job_id_param.
     target_key = file_key or job_id_param
+    
     background_tasks.add_task(task_final_analysis, analysis_job_id, target_key, dimensions, portfolio_id)
-    logger.info(f"✅ Analysis Task {analysis_job_id} started in background for {target_key} (Portfolio: {portfolio_id})")
+    logger.info(f"✅ Analysis Task {analysis_job_id} started (Portfolio: {portfolio_id})")
     
     return {
         "status": "success",
