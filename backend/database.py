@@ -91,6 +91,9 @@ class Portfolio(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(255), nullable=False)
+    last_sync_at = Column(DateTime, nullable=True)
+    sync_status = Column(String(20), default="idle", nullable=False)  # idle | syncing | completed | failed
+    sync_job_id = Column(String(100), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -105,6 +108,9 @@ class Portfolio(Base):
         return {
             "id": self.id,
             "name": self.name,
+            "last_sync_at": self.last_sync_at.isoformat() + "Z" if self.last_sync_at else None,
+            "sync_status": self.sync_status or "idle",
+            "sync_job_id": self.sync_job_id,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }

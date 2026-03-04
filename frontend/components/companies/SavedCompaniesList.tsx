@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { Company, VoCService } from "@/lib/api";
 import { Card } from "../ui/Card";
-import { Loader2, Plus, Globe, Smartphone, MapPin, Star, Building2, Pencil, Trash2 } from "lucide-react";
+import { Loader2, Plus, Globe, Smartphone, MapPin, Star, Building2, Pencil, Trash2, RefreshCw, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CompanyModal } from "./CompanyModal";
 import { usePortfolio } from "@/contexts/PortfolioContext";
@@ -18,7 +18,41 @@ export function SavedCompaniesList({ onStartNew }: SavedCompaniesListProps) {
     const [error, setError] = useState<string | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingCompany, setEditingCompany] = useState<Company | null>(null);
-    const { currentPortfolio } = usePortfolio();
+    const [autoSyncChecked, setAutoSyncChecked] = useState(false);
+    const { currentPortfolio, refreshPortfolios } = usePortfolio();
+
+    // Derive sync state from the server-side portfolio data
+    const isSyncing = currentPortfolio?.sync_status === "syncing";
+    const lastSyncAt = currentPortfolio?.last_sync_at;
+
+    // Poll server-side sync status while syncing
+    useEffect(() => {
+        if (!currentPortfolio?.id || !isSyncing) return;
+
+        const interval = setInterval(async () => {
+            try {
+                const status = await VoCService.getSyncStatus(currentPortfolio.id);
+                if (status.sync_status !== "syncing") {
+                    refreshPortfolios(); // Refresh to get new sync_status and last_sync_at
+                }
+            } catch (err) {
+                console.error("Error polling sync status:", err);
+            }
+        }, 5000);
+
+        return () => clearInterval(interval);
+    }, [currentPortfolio?.id, isSyncing, refreshPortfolios]);
+
+    const handleSync = useCallback(async () => {
+        if (!currentPortfolio?.id || isSyncing) return;
+
+        try {
+            await VoCService.syncPortfolio(currentPortfolio.id);
+            refreshPortfolios(); // Refresh to pick up the new sync_status = "syncing"
+        } catch (err) {
+            console.error("Sync failed:", err);
+        }
+    }, [currentPortfolio?.id, isSyncing, refreshPortfolios]);
 
     const fetchCompanies = useCallback(async () => {
         if (!currentPortfolio?.id) {
@@ -37,6 +71,28 @@ export function SavedCompaniesList({ onStartNew }: SavedCompaniesListProps) {
         } finally {
             setIsLoading(false);
         }
+    }, [currentPortfolio?.id]);
+
+    // Auto-sync logic: check once when companies finish loading
+    useEffect(() => {
+        if (!currentPortfolio?.id || isSyncing || isLoading || autoSyncChecked) return;
+        if (companies.length === 0) return;
+
+        setAutoSyncChecked(true);
+
+        if (!lastSyncAt) {
+            handleSync();
+        } else {
+            const diffInHours = (Date.now() - new Date(lastSyncAt).getTime()) / (1000 * 60 * 60);
+            if (diffInHours >= 24) {
+                handleSync();
+            }
+        }
+    }, [currentPortfolio?.id, isSyncing, isLoading, companies.length, autoSyncChecked, lastSyncAt, handleSync]);
+
+    // Reset auto-sync check when portfolio changes
+    useEffect(() => {
+        setAutoSyncChecked(false);
     }, [currentPortfolio?.id]);
 
     useEffect(() => {
@@ -133,14 +189,35 @@ export function SavedCompaniesList({ onStartNew }: SavedCompaniesListProps) {
                     <h2 className="text-2xl font-semibold text-foreground tracking-tight">Your Companies</h2>
                     <p className="text-muted-foreground">Select a company to analyze or generate a new report.</p>
                 </div>
-                <div className="flex gap-2">
-                    <button
-                        onClick={handleAdd}
-                        className="inline-flex items-center gap-2 bg-secondary hover:bg-secondary/80 text-secondary-foreground font-medium py-2 px-4 rounded-full shadow-sm transition-transform hover:-translate-y-0.5"
-                    >
-                        <Plus className="h-4 w-4" />
-                        Add Company
-                    </button>
+                <div className="flex flex-col sm:flex-row items-center sm:items-end gap-3">
+                    {currentPortfolio?.last_sync_at && (
+                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1 sm:mb-2 text-right">
+                            <Clock className="w-3.5 h-3.5" />
+                            <span>Last synced: {new Date(currentPortfolio.last_sync_at).toLocaleString()}</span>
+                        </div>
+                    )}
+                    <div className="flex gap-2">
+                        <button
+                            onClick={handleSync}
+                            disabled={isSyncing}
+                            className={cn(
+                                "inline-flex items-center gap-2 font-medium py-2 px-4 rounded-full shadow-sm transition-all text-sm",
+                                isSyncing
+                                    ? "bg-muted text-muted-foreground cursor-not-allowed"
+                                    : "bg-primary/10 text-primary hover:bg-primary/20 hover:-translate-y-0.5"
+                            )}
+                        >
+                            <RefreshCw className={cn("h-4 w-4", isSyncing && "animate-spin")} />
+                            {isSyncing ? "Syncing Reviews..." : "Sync Latest Reviews"}
+                        </button>
+                        <button
+                            onClick={handleAdd}
+                            className="inline-flex items-center gap-2 bg-secondary hover:bg-secondary/80 text-secondary-foreground font-medium py-2 px-4 rounded-full shadow-sm transition-transform hover:-translate-y-0.5 text-sm"
+                        >
+                            <Plus className="h-4 w-4" />
+                            Add Company
+                        </button>
+                    </div>
                 </div>
             </div>
 

@@ -290,7 +290,7 @@ def task_final_analysis(job_id: str, file_key: str, dimensions: List[dict], port
         update_job_status(job_id, "running", "Starting AI analysis...", "analysis")
         
         # Call the analysis service
-        analyze_reviews(file_key, dimensions, OPENAI_API_KEY, job_id, portfolio_id)
+        analyze_reviews(file_key, dimensions, OPENAI_API_KEY, portfolio_id, job_id)
         
         update_job_status(job_id, "completed", "Analysis finished.", "analysis")
         
@@ -449,41 +449,64 @@ def task_reanalyze_all(portfolio_id: int):
     finally:
         db_session.close()
 
-def task_sync_latest_reviews(portfolio_id: int):
+def task_sync_latest_reviews(portfolio_id: int, job_id: str):
     """
     Background task to automatically fetch and analyze latest reviews for all companies in a portfolio.
     """
-    logger.info(f"🔄 Starting Background Task: Auto-sync latest reviews for portfolio {portfolio_id}")
+    logger.info(f"🔄 Starting Background Task: Auto-sync latest reviews for portfolio {portfolio_id} (Job: {job_id})")
     
     db_session: Session = SessionLocal()
     try:
-        from sqlalchemy import func
-        
-        # 1. Check if we synced recently (e.g., last 1 hour)
-        latest_fetch = db_session.query(func.max(Review.created_at)).filter(Review.portfolio_id == portfolio_id).scalar()
-        
-        if latest_fetch and (datetime.utcnow() - latest_fetch).total_seconds() < 3600:
-            logger.info(f"Skipping auto-sync for portfolio {portfolio_id}, last sync was {latest_fetch}")
+        portfolio = db_session.query(Portfolio).filter(Portfolio.id == portfolio_id).first()
+        if not portfolio:
+            logger.error(f"Portfolio {portfolio_id} not found for sync.")
             return
+
+        # Mark as syncing in DB
+        portfolio.sync_status = "syncing"
+        portfolio.sync_job_id = job_id
+        db_session.commit()
             
-        # 2. Fetch companies for the portfolio
+        # Fetch companies for the portfolio
         user_companies = db_session.query(CompanyModel).filter(CompanyModel.portfolio_id == portfolio_id).all()
         if not user_companies:
             logger.info(f"No companies found for portfolio {portfolio_id}. Skipping auto-sync.")
+            portfolio.sync_status = "completed"
+            portfolio.last_sync_at = datetime.utcnow()
+            db_session.commit()
+            update_job_status(job_id, "completed", "No companies to sync.", task_type="sync")
             return
         
         brands_list = [c.to_dict() for c in user_companies]
         
-        job_id = f"auto_sync_{user_id}_{int(datetime.utcnow().timestamp())}"
+        update_job_status(job_id, "running", "Scraping latest reviews...", task_type="sync")
+
+        # Scrape only new reviews (handled by run_scraper_service fetching dates internally)
+        run_scraper_service(job_id, brands_list, progress_callback=None, portfolio_id=portfolio_id)
         
-        # 1. Scrape only new reviews (handled by run_scraper_service fetching dates internally)
-        result = run_scraper_service(job_id, brands_list, progress_callback=None, user_id=user_id)
+        # Expire the session cache so we can see reviews saved by run_scraper_service's own session
+        db_session.expire_all()
         
-        # 2. Check if anything was actually added/analyzed and trigger AI Auto-Analysis
-        trigger_auto_analysis(user_id, job_id, db_session, scraper_context="Auto-Sync")
+        # Check if anything was actually added/analyzed and trigger AI Auto-Analysis
+        trigger_auto_analysis(job_id, db_session, portfolio_id, scraper_context="Auto-Sync")
+
+        # Update portfolio sync status
+        portfolio.last_sync_at = datetime.utcnow()
+        portfolio.sync_status = "completed"
+        db_session.commit()
+        
+        update_job_status(job_id, "completed", "Sync finished.", task_type="sync")
 
     except Exception as e:
-        logger.error(f"Error in auto-sync for user {user_id}: {e}")
+        logger.error(f"Error in auto-sync for portfolio {portfolio_id}: {e}")
+        try:
+            portfolio = db_session.query(Portfolio).filter(Portfolio.id == portfolio_id).first()
+            if portfolio:
+                portfolio.sync_status = "failed"
+                db_session.commit()
+        except Exception:
+            pass
+        update_job_status(job_id, "failed", str(e), task_type="sync")
     finally:
         db_session.close()
 
@@ -573,6 +596,9 @@ class AcceptInvitationRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=6)
     token: str
+
+class ReanalyzeRequest(BaseModel):
+    portfolio_id: int
 
 # --- Endpoints ---
 
@@ -693,6 +719,47 @@ def delete_portfolio(portfolio_id: int, current_user: User = Depends(get_current
     
     logger.info(f"🗑️ Portfolio deleted: '{portfolio.name}' by user {current_user.email}")
     return {"message": "Portfolio deleted successfully"}
+
+
+@app.post("/api/portfolios/{portfolio_id}/sync")
+def sync_portfolio(
+    portfolio_id: int, 
+    background_tasks: BackgroundTasks, 
+    current_user: User = Depends(get_current_user), 
+    db: Session = Depends(get_db)
+):
+    """Trigger background sync of latest reviews for a portfolio."""
+    portfolio = check_portfolio_access(db, current_user.id, portfolio_id)
+    
+    # Don't allow multiple syncs at once
+    if portfolio.sync_status == "syncing":
+        return {"message": "Sync already in progress", "job_id": portfolio.sync_job_id, "sync_status": "syncing"}
+    
+    job_id = f"sync_{portfolio_id}_{int(datetime.utcnow().timestamp())}"
+    
+    # Store job_id and status in Portfolio so it persists across navigation
+    portfolio.sync_status = "syncing"
+    portfolio.sync_job_id = job_id
+    db.commit()
+    
+    background_tasks.add_task(task_sync_latest_reviews, portfolio_id, job_id)
+    
+    return {"message": "Sync started", "job_id": job_id, "sync_status": "syncing"}
+
+
+@app.get("/api/portfolios/{portfolio_id}/sync-status")
+def get_sync_status(
+    portfolio_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get sync status for a portfolio."""
+    portfolio = check_portfolio_access(db, current_user.id, portfolio_id)
+    return {
+        "sync_status": portfolio.sync_status or "idle",
+        "sync_job_id": portfolio.sync_job_id,
+        "last_sync_at": portfolio.last_sync_at.isoformat() + "Z" if portfolio.last_sync_at else None,
+    }
 
 
 # ==========================================
@@ -916,17 +983,30 @@ def delete_company(company_id: int, current_user: User = Depends(get_current_use
 
 
 # ==========================================
+# ==========================================
 # DIMENSION CRUD ENDPOINTS
 # ==========================================
 
-@app.get("/api/dimensions")
-async def api_get_dimensions(portfolio_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    """List all dimensions for a portfolio."""
+@app.post("/api/dimensions/reanalyze")
+async def reanalyze_reviews(request: ReanalyzeRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Trigger background re-analysis of all reviews for a portfolio."""
+    portfolio_id = request.portfolio_id
     check_portfolio_access(db, current_user.id, portfolio_id)
     
-    dimensions = db.query(Dimension).filter(
-        Dimension.portfolio_id == portfolio_id
-    ).all()
+    background_tasks.add_task(task_reanalyze_all, portfolio_id)
+    return {"message": "Re-analysis started in background"}
+
+@app.get("/api/dimensions")
+async def api_list_dimensions(portfolio_id: Optional[int] = None, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """List all dimensions for a portfolio."""
+    if not portfolio_id:
+        if not current_user.portfolios:
+             return []
+        portfolio_id = current_user.portfolios[0].id
+        
+    check_portfolio_access(db, current_user.id, portfolio_id)
+    
+    dimensions = db.query(Dimension).filter(Dimension.portfolio_id == portfolio_id).all()
     return [d.to_dict() for d in dimensions]
 
 
@@ -953,16 +1033,17 @@ async def api_create_dimension(request: DimensionCreateRequest, db: Session = De
     return new_dim.to_dict()
 
 
-@app.put("/api/dimensions/{dimension_id}")
+@app.put("/api/dimensions/{dimension_id:int}")
 def update_dimension(dimension_id: int, request: DimensionUpdateRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Update an existing dimension."""
     dimension = db.query(Dimension).filter(
-        Dimension.id == dimension_id,
-        Dimension.user_id == current_user.id
+        Dimension.id == dimension_id
     ).first()
     
     if not dimension:
         raise HTTPException(status_code=404, detail="Dimension not found")
+    
+    check_portfolio_access(db, current_user.id, dimension.portfolio_id)
     
     # Update only provided fields
     update_data = request.dict(exclude_unset=True)
@@ -977,7 +1058,7 @@ def update_dimension(dimension_id: int, request: DimensionUpdateRequest, current
     return dimension.to_dict()
 
 
-@app.delete("/api/dimensions/{dim_id}")
+@app.delete("/api/dimensions/{dim_id:int}")
 async def api_delete_dimension(dim_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Delete a dimension."""
     dim = db.query(Dimension).filter(Dimension.id == dim_id).first()
@@ -990,13 +1071,6 @@ async def api_delete_dimension(dim_id: int, db: Session = Depends(get_db), curre
     db.commit()
     return {"message": "Dimension deleted"}
 
-@app.post("/api/dimensions/reanalyze")
-async def reanalyze_reviews(portfolio_id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    """Trigger background re-analysis of all reviews for a portfolio."""
-    check_portfolio_access(db, current_user.id, portfolio_id)
-    
-    background_tasks.add_task(task_reanalyze_all, portfolio_id)
-    return {"message": "Re-analysis started in background"}
 
 # ==========================================
 # ORIGINAL ENDPOINTS (below)

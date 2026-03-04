@@ -154,6 +154,13 @@ def _parse_reviews(items: list) -> pd.DataFrame:
     return pd.DataFrame(reviews)
 
 
+# Default depth for incremental syncs (since_date provided).
+# 50 is enough for daily/hourly syncs; if all 50 are new, a retry
+# with full depth is triggered automatically.
+INCREMENTAL_SYNC_DEPTH = 50
+FULL_SYNC_DEPTH = 300
+
+
 def scrape_google_maps_reviews(keyword_or_url: str, location: str = "Saudi Arabia",
                                 language: str = "English", max_reviews: int = 100,
                                 since_date: Optional[datetime] = None) -> pd.DataFrame:
@@ -165,8 +172,9 @@ def scrape_google_maps_reviews(keyword_or_url: str, location: str = "Saudi Arabi
         logger.error("DataForSEO credentials not configured")
         return pd.DataFrame()
     
-    # Process inputs to extract target (place_id or keyword)
-    target_data = _prepare_payload_item(keyword_or_url, location, language, max_reviews)
+    # Use smaller depth for incremental syncs to save API cost
+    depth = INCREMENTAL_SYNC_DEPTH if since_date else max(FULL_SYNC_DEPTH, max_reviews)
+    target_data = _prepare_payload_item(keyword_or_url, location, language, depth)
     
     # Single item batch
     task_mapping = _create_review_tasks([target_data])
@@ -181,10 +189,25 @@ def scrape_google_maps_reviews(keyword_or_url: str, location: str = "Saudi Arabi
         return pd.DataFrame()
     
     df = _parse_reviews(items)
-    return _apply_date_filter(df, since_date)
+    filtered_df = _apply_date_filter(df, since_date)
+
+    # Smart fallback: if ALL fetched reviews passed the date filter,
+    # there may be more new reviews beyond our small depth — retry with full depth.
+    if since_date and len(filtered_df) == len(df) and len(df) >= depth and depth < FULL_SYNC_DEPTH:
+        logger.info(f"🔄 All {len(df)} reviews were new — retrying with full depth ({FULL_SYNC_DEPTH})")
+        target_data = _prepare_payload_item(keyword_or_url, location, language, FULL_SYNC_DEPTH)
+        task_mapping = _create_review_tasks([target_data])
+        if task_mapping:
+            task_id = list(task_mapping.keys())[0]
+            items = _poll_for_results(task_id)
+            if items:
+                df = _parse_reviews(items)
+                filtered_df = _apply_date_filter(df, since_date)
+
+    return filtered_df
 
 
-def _prepare_payload_item(target: str, location: str, language: str, max_reviews: int) -> Dict:
+def _prepare_payload_item(target: str, location: str, language: str, depth: int) -> Dict:
     """Helper to prepare a single task payload item"""
     import urllib.parse
     import re
@@ -192,7 +215,7 @@ def _prepare_payload_item(target: str, location: str, language: str, max_reviews
     payload = {
         "language_name": language,
         "location_name": location,
-        "depth": max(300, max_reviews),
+        "depth": depth,
         "sort_by": "newest",
         "tag": target
     }
@@ -246,7 +269,8 @@ def _prepare_payload_item(target: str, location: str, language: str, max_reviews
 
 
 def _apply_date_filter(df: pd.DataFrame, since_date: Optional[datetime] = None) -> pd.DataFrame:
-    """Filter DataFrame for reviews since the specified date or last 6 months by default"""
+    """Filter DataFrame for reviews since the specified date or last 6 months by default.
+    Reviews are expected to be sorted newest-first (sort_by=newest from API)."""
     if df.empty or 'date' not in df.columns:
         return df
         
@@ -277,7 +301,9 @@ def scrape_multiple_locations(locations: list, max_reviews_per_location: int = 1
     if not locations:
         return pd.DataFrame()
     
-    logger.info(f"--- 🚀 Batching reviews for {len(locations)} locations ---")
+    # Use smaller depth for incremental syncs to save API cost
+    depth = INCREMENTAL_SYNC_DEPTH if since_date else max(FULL_SYNC_DEPTH, max_reviews_per_location)
+    logger.info(f"--- 🚀 Batching reviews for {len(locations)} locations (depth={depth}, incremental={since_date is not None}) ---")
     
     payloads = []
     for loc in locations:
@@ -288,7 +314,7 @@ def scrape_multiple_locations(locations: list, max_reviews_per_location: int = 1
             target, 
             loc.get("location", "Saudi Arabia"),
             "English", 
-            max_reviews_per_location
+            depth
         ))
     
     if not payloads:

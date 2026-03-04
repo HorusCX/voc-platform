@@ -76,6 +76,9 @@ export interface Company {
 export interface Portfolio {
     id: number;
     name: string;
+    last_sync_at?: string;
+    sync_status?: string;   // idle | syncing | completed | failed
+    sync_job_id?: string;
     created_at?: string;
     updated_at?: string;
 }
@@ -203,7 +206,7 @@ export const VoCService = {
     },
 
     reanalyzeDimensions: async (portfolioId: number) => {
-        const response = await api.post(`/api/dimensions/reanalyze?portfolio_id=${portfolioId}`);
+        const response = await api.post('/api/dimensions/reanalyze', { portfolio_id: portfolioId });
         return response.data;
     },
 
@@ -239,6 +242,16 @@ export const VoCService = {
 
     deletePortfolio: async (id: number) => {
         const response = await api.delete(`/api/portfolios/${id}`);
+        return response.data;
+    },
+
+    syncPortfolio: async (portfolioId: number) => {
+        const response = await api.post<{ message: string; job_id: string; sync_status: string }>(`/api/portfolios/${portfolioId}/sync`);
+        return response.data;
+    },
+
+    getSyncStatus: async (portfolioId: number) => {
+        const response = await api.get<{ sync_status: string; sync_job_id: string | null; last_sync_at: string | null }>(`/api/portfolios/${portfolioId}/sync-status`);
         return response.data;
     },
 
