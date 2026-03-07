@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { VoCService } from "@/lib/api";
 import { Card } from "../ui/Card";
-import { Loader2, CheckCircle, Send } from "lucide-react";
+import { Loader2, CheckCircle, Send, Trash2, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { usePortfolio } from "@/contexts/PortfolioContext";
 
@@ -215,6 +215,16 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
         setDimensions(newDims);
     };
 
+    const removeDimension = (idx: number) => {
+        const newDims = [...dimensions];
+        newDims.splice(idx, 1);
+        setDimensions(newDims);
+    };
+
+    const addNewDimension = () => {
+        setDimensions([...dimensions, { dimension: "", description: "", keywords: [] }]);
+    };
+
     // --- RENDER STATES ---
 
     if (status === 'polling') {
@@ -360,8 +370,17 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
                     <div className="space-y-6">
                         {dimensions.map((dim, idx) => (
                             <div key={idx} className="p-4 bg-calo-background-secondary border border-calo-border rounded-lg relative">
-                                <span className="absolute top-2 right-2 text-xs font-bold text-calo-text-secondary">#{idx + 1}</span>
-                                <div className="space-y-3">
+                                <div className="absolute top-2 right-2 flex items-center gap-2">
+                                    <span className="text-xs font-bold text-calo-text-secondary border border-slate-200 px-2 py-0.5 rounded bg-slate-50">#{idx + 1}</span>
+                                    <button
+                                        onClick={() => removeDimension(idx)}
+                                        className="text-red-400 hover:text-red-700 hover:bg-red-50 p-1.5 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-red-200"
+                                        title="Remove Dimension"
+                                    >
+                                        <Trash2 className="h-4 w-4" />
+                                    </button>
+                                </div>
+                                <div className="space-y-3 pt-6">
                                     <div>
                                         <label className="text-xs font-bold uppercase text-calo-text-secondary">Dimension</label>
                                         <input
@@ -390,6 +409,13 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
                                 </div>
                             </div>
                         ))}
+
+                        <button
+                            onClick={addNewDimension}
+                            className="w-full border-2 border-dashed border-calo-border hover:border-calo-primary/50 hover:bg-calo-background-secondary text-calo-text-secondary font-semibold py-4 px-6 rounded-lg flex items-center justify-center gap-2 transition-all hover:text-calo-primary"
+                        >
+                            <Plus className="h-5 w-5" /> Add New Dimension
+                        </button>
 
                         <button
                             onClick={handleSubmitDimensions}
