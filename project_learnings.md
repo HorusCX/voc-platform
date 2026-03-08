@@ -51,5 +51,59 @@ This document captures key technical findings and solutions discovered during de
 *   Scripts like `deploy_frontend.sh` that function with `read -p "Enter commit message"` will hang in automated or non-interactive environments.
 *   **Fix**: Always verify if a script is waiting for input if deployment seems stuck.
 
+## 5. Next.js 404 Errors on New API Endpoints (Missing Proxy Routes)
+**Problem**: After creating a new endpoint in the FastAPI backend (e.g., `/api/portfolios/{id}/chat`), frontend `fetch` calls or `axios` requests to that URL return a `404 Not Found` error and often result in a Syntax Error (`Unexpected token < in JSON`) because Next.js returns an HTML error page.
+
+**The Solution**:
+*   The frontend uses a relative URL (e.g., `/api/...`) which Next.js intercepts. Because of the Amplify HTTPS -> HTTP Mixed Content issue (see Point #1), the frontend does NOT communicate directly with the backend.
+*   **Fix**: Every time a new backend API is created, you **must** also create a corresponding Next.js Route Handler file in the frontend (`frontend/app/api/.../route.ts`) to act as a proxy.
+*   **Example Proxy Code**:
+    ```typescript
+    import { NextRequest, NextResponse } from "next/server";
+    const BACKEND_URL = process.env.BACKEND_URL;
+    
+    export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+        if (!BACKEND_URL) return NextResponse.json({ error: "Backend URL not configured" }, { status: 500 });
+        try {
+            const { id } = await params;
+            const body = await request.json();
+            const authHeader = request.headers.get("Authorization");
+            
+            const response = await fetch(`${BACKEND_URL}/api/your-new-endpoint/${id}`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    ...(authHeader && { "Authorization": authHeader }),
+                },
+                body: JSON.stringify(body),
+            });
+            const data = await response.json();
+            return NextResponse.json(data, { status: response.status });
+        } catch (error) {
+            return NextResponse.json({ detail: "Failed to connect to backend" }, { status: 500 });
+        }
+    }
+    ```
+
+## 6. LangChain SQL Agent: "Agent stopped due to max iterations."
+**Problem**: The AI Chat function returns an error `Agent stopped due to max iterations.` when processing queries that involve multiple tables or aggregations (like "how many reviews each company got for each month in the last 3 months").
+
+**The Solution**:
+*   The default `max_iterations` for LangChain's SQL agent executor is often too low (e.g., 5 or 15). Every action the agent takes (Listing tables, Getting Schema, Checking SQL, Executing SQL, Fixing Errors) counts as an "iteration".
+*   For complex queries, the agent naturally needs more iterations to explore the database schema and validate its SQL before executing it.
+*   **Fix**: Increase the `max_iterations` parameter when initializing the agent executor.
+*   **Example Code**:
+    ```python
+    agent_executor = create_sql_agent(
+        llm, 
+        db=db, 
+        agent_type="openai-tools", 
+        verbose=True,
+        prefix=prefix,
+        max_iterations=15 # Increased from 5 to allow more turns
+    )
+    ```
+
 ---
 *Created: 2026-02-13*
+*Updated: 2026-03-08*

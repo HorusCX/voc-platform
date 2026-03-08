@@ -266,6 +266,28 @@ export const VoCService = {
         return response.data;
     },
 
+    getConversations: async (portfolioId: number) => {
+        const response = await api.get<{ id: number; title: string; updated_at: string; created_at: string }[]>(`/api/portfolios/${portfolioId}/conversations`);
+        return response.data;
+    },
+
+    getConversationMessages: async (conversationId: number) => {
+        const response = await api.get<{ id: number; role: "user" | "ai"; content: string; created_at: string }[]>(`/api/conversations/${conversationId}/messages`);
+        return response.data;
+    },
+
+    deleteConversation: async (conversationId: number) => {
+        const response = await api.delete<{ message: string }>(`/api/conversations/${conversationId}`);
+        return response.data;
+    },
+
+    sendChatMessage: async (portfolioId: number, message: string, conversationId?: number) => {
+        const payload: Record<string, unknown> = { message };
+        if (conversationId) payload.conversation_id = conversationId;
+        const response = await api.post<{ response: string; conversation_id: number }>(`/api/portfolios/${portfolioId}/chat`, payload);
+        return response.data;
+    },
+
     acceptInvitation: async (data: Record<string, string>) => {
         const response = await api.post('/api/invitations/accept', data);
         return response.data;

@@ -27,9 +27,10 @@ from services.discover_maps_locations import discover_maps_links
 from services.fetch_app_ids import resolve_app_ids
 from services.fetch_reviews import run_scraper_service
 from services.analyze_reviews import generate_dimensions, analyze_reviews
+from services.chat_agent import run_chat_agent
 
 # Database & Auth
-from database import init_db, get_db, User, CompanyModel, Review, Dimension, get_user_limits, SessionLocal, Portfolio, user_portfolios, PortfolioInvitation
+from database import init_db, get_db, User, CompanyModel, Review, Dimension, get_user_limits, SessionLocal, Portfolio, user_portfolios, PortfolioInvitation, Conversation, ChatMessage
 from auth import (
     hash_password, verify_password, create_access_token,
     get_current_user, is_admin_email
@@ -600,6 +601,10 @@ class AcceptInvitationRequest(BaseModel):
 class ReanalyzeRequest(BaseModel):
     portfolio_id: int
 
+class ChatMessageRequest(BaseModel):
+    message: str
+    conversation_id: Optional[int] = None
+
 # --- Endpoints ---
 
 # ==========================================
@@ -760,6 +765,142 @@ def get_sync_status(
         "sync_job_id": portfolio.sync_job_id,
         "last_sync_at": portfolio.last_sync_at.isoformat() + "Z" if portfolio.last_sync_at else None,
     }
+
+
+# ==========================================
+# CHAT AI ENDPOINTS
+# ==========================================
+
+@app.get("/api/portfolios/{portfolio_id}/conversations")
+def list_conversations(
+    portfolio_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """List all chat conversations for a portfolio and user."""
+    check_portfolio_access(db, current_user.id, portfolio_id)
+    
+    conversations = db.query(Conversation).filter(
+        Conversation.portfolio_id == portfolio_id,
+        Conversation.user_id == current_user.id
+    ).order_by(Conversation.updated_at.desc()).all()
+    
+    return [c.to_dict() for c in conversations]
+
+@app.get("/api/conversations/{conversation_id}/messages")
+def get_conversation_messages(
+    conversation_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get all messages for a specific conversation."""
+    conversation = db.query(Conversation).filter(
+        Conversation.id == conversation_id,
+        Conversation.user_id == current_user.id
+    ).first()
+    
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+        
+    messages = conversation.messages
+    return [m.to_dict() for m in messages]
+
+@app.delete("/api/conversations/{conversation_id}")
+def delete_conversation(
+    conversation_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Delete a conversation."""
+    conversation = db.query(Conversation).filter(
+        Conversation.id == conversation_id,
+        Conversation.user_id == current_user.id
+    ).first()
+    
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+        
+    db.delete(conversation)
+    db.commit()
+    return {"message": "Conversation deleted"}
+
+@app.post("/api/portfolios/{portfolio_id}/chat")
+def portfolio_chat(
+    portfolio_id: int,
+    request: ChatMessageRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Receive a message from the user and respond using the LangChain SQL Agent.
+    Strictly isolated to the current portfolio to ensure data privacy.
+    Saves conversation history to the database.
+    """
+    # 1. Verify user has access to this portfolio
+    check_portfolio_access(db, current_user.id, portfolio_id)
+    
+    # 2. Extract the user's message
+    user_message = request.message.strip()
+    if not user_message:
+        raise HTTPException(status_code=400, detail="Message cannot be empty")
+        
+    logger.info(f"💬 Chat Request for Portfolio {portfolio_id}: {user_message[:50]}...")
+    
+    # 3. Handle Conversation Logic
+    conversation_id = request.conversation_id
+    conversation = None
+    
+    if conversation_id:
+        conversation = db.query(Conversation).filter(
+            Conversation.id == conversation_id,
+            Conversation.user_id == current_user.id
+        ).first()
+        if not conversation:
+             raise HTTPException(status_code=404, detail="Conversation not found")
+        conversation.updated_at = datetime.utcnow()
+    else:
+        # Create new conversation
+        title = user_message[:50] + "..." if len(user_message) > 50 else user_message
+        conversation = Conversation(
+            portfolio_id=portfolio_id,
+            user_id=current_user.id,
+            title=title
+        )
+        db.add(conversation)
+        db.commit()
+        db.refresh(conversation)
+        conversation_id = conversation.id
+        
+    # Save User Message
+    user_chat_msg = ChatMessage(
+        conversation_id=conversation_id,
+        role="user",
+        content=user_message
+    )
+    db.add(user_chat_msg)
+    db.commit()
+    
+    # 4. Call the SQL Agent backend
+    try:
+        response_text = run_chat_agent(portfolio_id, user_message)
+        
+        # Save AI Message
+        ai_chat_msg = ChatMessage(
+            conversation_id=conversation_id,
+            role="ai",
+            content=response_text
+        )
+        db.add(ai_chat_msg)
+        db.commit()
+        
+        return {
+            "response": response_text,
+            "conversation_id": conversation_id
+        }
+    except Exception as e:
+        logger.error(f"❌ Chat processing error: {e}")
+        raise HTTPException(status_code=500, detail="AI processing failed.")
+
 
 
 # ==========================================
@@ -1527,9 +1668,11 @@ async def get_dashboard_stats(
         # Sentiment trend by week
         if r.date:
             try:
-                # Naive ISO slice "2023-01-01"
-                date_str = r.date[:10]
-                d = datetime.fromisoformat(date_str)
+                # r.date is now a datetime.date object
+                d = r.date
+                if hasattr(d, 'date'): # if it's a datetime object
+                    d = d.date()
+                
                 iso_year, iso_week, _ = d.isocalendar()
                 wk_key = f"W-{iso_week}"
                 
@@ -1539,7 +1682,8 @@ async def get_dashboard_stats(
                 if sent == "positive": week_map[wk_key]["positive"] += 1
                 elif sent == "negative": week_map[wk_key]["negative"] += 1
                 else: week_map[wk_key]["neutral"] += 1
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error processing trend date: {e}")
                 pass
 
         # Dimensions logic

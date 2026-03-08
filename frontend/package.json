@@ -13,6 +13,7 @@
     "@eslint/js": "^9.0.0",
     "@types/axios": "^0.9.36",
     "@types/papaparse": "^5.5.2",
+    "@types/react-dropzone": "^5.1.0",
     "axios": "^1.13.4",
     "clsx": "^2.1.1",
     "lucide-react": "^0.563.0",
@@ -21,8 +22,9 @@
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-dropzone": "^14.4.0",
-    "@types/react-dropzone": "^5.1.0",
+    "react-markdown": "^10.1.0",
     "recharts": "^3.7.0",
+    "remark-gfm": "^4.0.1",
     "tailwind-merge": "^3.4.0"
   },
   "devDependencies": {

@@ -193,8 +193,15 @@ def save_reviews_to_db(job_id: str, df: pd.DataFrame, portfolio_id: int):
         return
 
     db = SessionLocal()
+    from database import CompanyModel
     from sqlalchemy.dialects.postgresql import insert
     try:
+        company_mapping = {}
+        if portfolio_id:
+            companies = db.query(CompanyModel).filter(CompanyModel.portfolio_id == portfolio_id).all()
+            for c in companies:
+                company_mapping[c.company_name] = c.id
+
         reviews_data = []
         for _, row in df.iterrows():
             def _clean(val, is_str=True):
@@ -203,18 +210,33 @@ def save_reviews_to_db(job_id: str, df: pd.DataFrame, portfolio_id: int):
                 if s.lower() in ["nan", "none", "null", "nat"]: return "" if is_str else None
                 return s
 
+            brand_val = str(row.get("brand", ""))
             text_val = _clean(row.get("text"), True)
             user_val = _clean(row.get("source_user"), True)
             date_val = _clean(row.get("date"), True)
             plat_val = _clean(row.get("platform"), True)
             
+            c_id = company_mapping.get(brand_val)
+            if not c_id:
+                c_id = company_mapping.get(brand_val.strip())
+            
+            try:
+                if date_val:
+                    # Try to parse the date string. Scrapers usually return 'YYYY-MM-DD'
+                    dt_obj = pd.to_datetime(date_val).date()
+                else:
+                    dt_obj = None
+            except Exception:
+                dt_obj = None
+
             reviews_data.append({
                 "job_id": job_id,
                 "portfolio_id": portfolio_id,
-                "brand": str(row.get("brand", "")),
+                "company_id": c_id,
+                "brand": brand_val,
                 "text": text_val,
                 "rating": int(row.get("rating", 0)) if pd.notna(row.get("rating")) else None,
-                "date": date_val,
+                "date": dt_obj,
                 "source_user": user_val,
                 "platform": plat_val,
                 "source_location": str(row.get("source_location", "")) if pd.notna(row.get("source_location")) else None,
@@ -333,38 +355,65 @@ def run_scraper_service(job_id, brands_list, portfolio_id, progress_callback=Non
                 future_map[f] = {'brand': name, 'type': 'app'}
                 
             if RUN_GOOGLE_MAPS and gmaps_links:
-                batch_locations = []
+                batch_locations_new = []
+                batch_locations_existing = []
+
                 # Simple heuristic: if company is Kcal or website is .ae, use UAE
                 default_loc = "Saudi Arabia"
                 if "kcal" in name.lower() or (brand.get('website') and ".ae" in brand.get('website').lower()):
                     default_loc = "United Arab Emirates"
                 
-                for link_data in gmaps_links:
-                    if isinstance(link_data, dict):
-                        place_id = link_data.get("place_id", "")
-                        url = link_data.get("url", "")
-                        location_name = link_data.get("name", "")
+                # Check each location in DB to decide if it's new or existing
+                db = SessionLocal()
+                try:
+                    for link_data in gmaps_links:
+                        if not link_data: continue
                         
-                        target = f"place_id:{place_id}" if place_id else (url or location_name)
-                        if target:
-                            # Use the EXACT target string as the name so it matches the 'tag' we added to fetch_maps_reviews
-                            batch_locations.append({
-                                "keyword": target, 
-                                "name": target, # This is the key we'll match on later
-                                "location": default_loc
-                            })
-                    else:
-                        if link_data:
-                            batch_locations.append({
-                                "keyword": link_data, 
-                                "name": link_data, 
-                                "location": default_loc
-                            })
+                        target = ""
+                        if isinstance(link_data, dict):
+                            place_id = link_data.get("place_id", "")
+                            url = link_data.get("url", "")
+                            location_name = link_data.get("name", "")
+                            target = f"place_id:{place_id}" if place_id else (url or location_name)
+                        else:
+                            target = link_data
+                        
+                        if not target: continue
+
+                        # Check if this specific location has any reviews in DB
+                        has_reviews = db.query(Review.id).filter(
+                            Review.portfolio_id == portfolio_id,
+                            Review.brand == name,
+                            Review.source_location == target
+                        ).first() is not None
+
+                        loc_item = {
+                            "keyword": target, 
+                            "name": target, 
+                            "location": default_loc
+                        }
+
+                        if has_reviews:
+                            batch_locations_existing.append(loc_item)
+                        else:
+                            batch_locations_new.append(loc_item)
+                finally:
+                    db.close()
+
+                from services.fetch_maps_reviews import scrape_multiple_locations
                 
-                if batch_locations:
-                    from services.fetch_maps_reviews import scrape_multiple_locations
-                    f = executor.submit(scrape_multiple_locations, batch_locations, since_date=since_date_maps)
-                    future_map[f] = {'brand': name, 'type': 'maps_batch', 'locations': [loc['name'] for loc in batch_locations]}
+                if batch_locations_new:
+                    # New locations get 6 months lookback
+                    since_date_6m = datetime.now() - pd.DateOffset(months=6)
+                    f = executor.submit(scrape_multiple_locations, batch_locations_new, since_date=since_date_6m)
+                    future_map[f] = {'brand': name, 'type': 'maps_batch', 'locations': [loc['name'] for loc in batch_locations_new]}
+                    logger.info(f"📍 Queued {len(batch_locations_new)} NEW locations for {name} (Since 6 months)")
+
+                if batch_locations_existing:
+                    # Existing locations use the brand's latest review date
+                    f = executor.submit(scrape_multiple_locations, batch_locations_existing, since_date=since_date_maps)
+                    future_map[f] = {'brand': name, 'type': 'maps_batch', 'locations': [loc['name'] for loc in batch_locations_existing]}
+                    logger.info(f"📍 Queued {len(batch_locations_existing)} EXISTING locations for {name} (Since {since_date_maps})")
             
             trustpilot_link = brand.get('trustpilot_link')
             if RUN_TRUSTPILOT and trustpilot_link:

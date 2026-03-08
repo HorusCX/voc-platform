@@ -10,7 +10,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     create_engine, Column, Integer, String, Boolean, Text, DateTime,
-    ForeignKey, JSON, Index, Float, UniqueConstraint, Table
+    ForeignKey, JSON, Index, Float, UniqueConstraint, Table, Date
 )
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from dotenv import load_dotenv
@@ -220,7 +220,7 @@ class Review(Base):
     brand = Column(String(255), nullable=False)
     text = Column(Text, nullable=True)
     rating = Column(Integer, nullable=True)
-    date = Column(String(20), nullable=True)
+    date = Column(Date, nullable=True)
     source_user = Column(String(255), nullable=True)
     platform = Column(String(100), nullable=False)
     source_location = Column(String(500), nullable=True)
@@ -262,6 +262,54 @@ class Review(Base):
             "portfolio_id": self.portfolio_id,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "analyzed_at": self.analyzed_at.isoformat() if self.analyzed_at else None,
+        }
+
+
+class Conversation(Base):
+    __tablename__ = "conversations"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    portfolio_id = Column(Integer, ForeignKey("portfolios.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    title = Column(String(500), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    portfolio = relationship("Portfolio", backref="conversations")
+    user = relationship("User", backref="conversations")
+    messages = relationship("ChatMessage", back_populates="conversation", cascade="all, delete-orphan", order_by="ChatMessage.created_at")
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "portfolio_id": self.portfolio_id,
+            "user_id": self.user_id,
+            "title": self.title,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    conversation_id = Column(Integer, ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False, index=True)
+    role = Column(String(50), nullable=False)  # "user" or "ai"
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationship
+    conversation = relationship("Conversation", back_populates="messages")
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "conversation_id": self.conversation_id,
+            "role": self.role,
+            "content": self.content,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
         }
 
 

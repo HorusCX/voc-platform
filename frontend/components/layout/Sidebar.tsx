@@ -9,6 +9,7 @@ const navItems = [
     { name: "Dimensions", href: "/dimensions", icon: Tags },
     { name: "Reviews", href: "/reviews", icon: MessageSquare },
     { name: "Dashboard", href: "/dashboard", icon: BarChart3 },
+    { name: "AI Chat", href: "/dashboard/chat", icon: MessageSquare },
     { name: "Team", href: "/team", icon: UserPlus },
 ];
 
