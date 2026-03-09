@@ -104,6 +104,28 @@ This document captures key technical findings and solutions discovered during de
     )
     ```
 
+## 7. macOS Deployment & Docker Permissions
+**Findings from March 2026 Deployment**:
+
+### A. macOS "Operation Not Permitted" (SIP/Sandbox)
+*   **Problem**: Certain files like `.env`, `node_modules`, or even `__pycache__` can become "locked" by macOS System Integrity Protection (SIP) or terminal-specific sandboxing. This causes `docker build` or `stat` commands to fail with `Errno 1: Operation not permitted`.
+*   **The Solution**: Focused Build Context.
+    1.  Create a temporary `build_ctx` directory.
+    2.  Use a script (e.g., `prepare_build.py`) to copy **only** the necessary code (e.g., `backend/`, `requirements.txt`) into this directory, explicitly ignoring problematic files/folders.
+    3.  Run `docker build` targeting `build_ctx` instead of the root directory.
+
+### B. ECR Login "Keychain Error"
+*   **Problem**: In some terminal environments on macOS, `docker login` fails with `Keychain Error. (100001)` because of the `credsStore: "desktop"` setting in `~/.docker/config.json`.
+*   **The Solution**: Reset the credential store or use an isolated config.
+    *   **Fix**: Update `~/.docker/config.json` to have `"credsStore": ""` or use the `--config` flag to point to a local directory containing a manual `config.json` without the desktop credential helper.
+
+### C. GitHub Push Protection & Secrets
+*   **Problem**: Generic `git add .` in deployment scripts can catch temporary deployment artifacts (like `.deploy_env` or `config.json` backups) that contain secrets, triggering GitHub's "Push Protection" and blocking the release.
+*   **The Solution**:
+    1.  Maintain a strict `.dockerignore` and `.gitignore`.
+    2.  Always explicitly clean up deployment-related temp files before pushing.
+    3.  Avoid committing "stage" files created by deployment scripts.
+
 ---
 *Created: 2026-02-13*
-*Updated: 2026-03-08*
+*Updated: 2026-03-09*
