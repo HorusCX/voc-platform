@@ -227,7 +227,7 @@ export default function ChatPage() {
 
     return (
         <AppLayout>
-            <div className="w-full max-w-6xl mx-auto h-[calc(100vh-8rem)] flex bg-card rounded-xl border border-border overflow-hidden shadow-sm mt-4">
+            <div className="w-full max-w-[calc(100%-2rem)] ml-4 h-[calc(100vh-8rem)] flex bg-card rounded-xl border border-border overflow-hidden shadow-sm mt-4">
 
                 {/* Sidebar History */}
                 <div className="w-64 border-r border-border bg-muted/20 flex flex-col hidden md:flex">

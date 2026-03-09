@@ -33,17 +33,17 @@ echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━�
 
 # Login to ECR
 echo -e "\n${YELLOW}🔑 Logging in to ECR...${NC}"
-aws ecr get-login-password --region "$REGION" | docker login --username AWS --password-stdin "$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com"
+aws ecr get-login-password --region "$REGION" | docker --config /Users/mahmoudsaied/Downloads/Anti_Gravity/VoC/VoC_code login --username AWS --password-stdin "$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com"
 
 # Build Docker Image
 echo -e "\n${YELLOW}🔨 Building Docker Image...${NC}"
-docker build --platform linux/arm64 --provenance=false -t "$REPO_NAME" .
+docker build -f Dockerfile --platform linux/arm64 -t "$REPO_NAME" build_ctx
 
 # Tag and Push
 echo -e "\n${YELLOW}🏷️  Tagging and Pushing to ECR...${NC}"
 docker tag "$REPO_NAME:latest" "$IMAGE_URI"
 echo "Pushing $IMAGE_URI..."
-docker push "$IMAGE_URI"
+docker --config /Users/mahmoudsaied/Downloads/Anti_Gravity/VoC/VoC_code push "$IMAGE_URI"
 
 echo -e "${GREEN}✅ Docker image built and pushed successfully${NC}"
 
@@ -56,8 +56,8 @@ echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━�
 
 # Load Environment Variables
 echo -e "\n${GREEN}🔑 Loading Environment Variables from .env...${NC}"
-if [ -f .env ]; then
-    export $(grep -v '^#' .env | xargs)
+if [ -f .deploy_env ]; then
+    export $(grep -v '^#' .deploy_env | xargs)
 else
     echo "❌ .env file not found!"
     exit 1

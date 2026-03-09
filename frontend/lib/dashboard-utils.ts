@@ -62,6 +62,7 @@ export interface DashboardData {
     neutralPercent: number;
     netSentiment: number;
     sentimentTrend: TrendDataPoint[];
+    brandTrend: Record<string, string | number>[];
     brandStats: BrandStats[];
     dimensionStats: DimensionStats[];
     topStrengths: DimensionStats[];
@@ -237,9 +238,22 @@ export async function fetchPaginatedUserReviewsFromAPI(paramsObj: {
 /**
  * Fetch pre-calculated dashboard stats directly from the backend
  */
-export async function fetchDashboardStatsFromAPI(brand?: string, jobId?: string | null, portfolioId?: number): Promise<DashboardData | null> {
+export async function fetchDashboardStatsFromAPI(
+    brand?: string,
+    jobId?: string | null,
+    portfolioId?: number,
+    platform?: string,
+    startDate?: string,
+    endDate?: string
+): Promise<DashboardData | null> {
     try {
-        const stats = await VoCService.getDashboardStats(portfolioId, brand === 'all' ? undefined : brand) as DashboardData | null;
+        const stats = await VoCService.getDashboardStats(
+            portfolioId,
+            brand === 'all' ? undefined : brand,
+            platform === 'all' ? undefined : platform,
+            startDate,
+            endDate
+        ) as DashboardData | null;
         return stats;
     } catch (error) {
         console.error('Error fetching dashboard stats:', error);
@@ -461,6 +475,46 @@ export function calculateSentimentTrend(reviews: ReviewData[]): TrendDataPoint[]
 }
 
 /**
+ * Calculate review trend per brand over time (weekly)
+ */
+export function calculateBrandTrend(reviews: ReviewData[]): Record<string, string | number>[] {
+    const weekMap = new Map<string, { week: string; sortKey: number } & Record<string, string | number>>();
+    const allBrands = new Set<string>();
+
+    reviews.forEach(review => {
+        if (!review.date) return;
+
+        const date = new Date(review.date);
+        if (isNaN(date.getTime())) return;
+
+        const brand = review.brand || 'Unknown';
+        allBrands.add(brand);
+
+        const weekNumber = getWeekNumber(date);
+        const weekKey = `W-${weekNumber}`;
+        const sortKey = date.getFullYear() * 100 + weekNumber;
+
+        if (!weekMap.has(weekKey)) {
+            weekMap.set(weekKey, { week: weekKey, sortKey });
+        }
+
+        const weekStats = weekMap.get(weekKey)!;
+        const currentVal = (weekStats[brand] as number) || 0;
+        weekStats[brand] = currentVal + 1;
+    });
+
+    const trendData = Array.from(weekMap.values()).sort((a, b) => (a.sortKey as number) - (b.sortKey as number));
+
+    return trendData.map(w => {
+        const entry: Record<string, string | number> = { week: w.week as string };
+        allBrands.forEach(brand => {
+            entry[brand] = w[brand] || 0;
+        });
+        return entry;
+    }).slice(-12);
+}
+
+/**
  * Get ISO week number
  */
 function getWeekNumber(date: Date): number {
@@ -543,6 +597,9 @@ export function processDashboardData(reviews: ReviewData[]): DashboardData {
     // Sentiment trend
     const sentimentTrend = calculateSentimentTrend(reviews);
 
+    // Brand trend
+    const brandTrend = calculateBrandTrend(reviews);
+
     return {
         totalReviews,
         avgRating,
@@ -551,6 +608,7 @@ export function processDashboardData(reviews: ReviewData[]): DashboardData {
         neutralPercent,
         netSentiment,
         sentimentTrend,
+        brandTrend,
         brandStats,
         dimensionStats,
         topStrengths,

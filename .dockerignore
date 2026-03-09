@@ -1,0 +1,7 @@
+.env
+.deploy_env
+.agent_docker_tmp.json
+.git
+.ruff_cache
+venv
+__pycache__

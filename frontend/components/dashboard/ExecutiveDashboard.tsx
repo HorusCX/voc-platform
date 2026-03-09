@@ -9,6 +9,17 @@ interface ExecutiveDashboardProps {
     data: DashboardData;
 }
 
+const BRAND_COLORS = [
+    'var(--primary)',
+    '#3b82f6', // blue-500
+    '#10b981', // emerald-500
+    '#f59e0b', // amber-500
+    '#ef4444', // red-500
+    '#8b5cf6', // violet-500
+    '#ec4899', // pink-500
+    '#06b6d4', // cyan-500
+];
+
 export function ExecutiveDashboard({ data }: ExecutiveDashboardProps) {
     return (
         <div className="space-y-8">
@@ -49,11 +60,11 @@ export function ExecutiveDashboard({ data }: ExecutiveDashboardProps) {
                 />
             </div>
 
-            {/* Sentiment Trend Chart */}
+            {/* Brand Review Trend Chart */}
             <div className="bg-card rounded-2xl border border-border p-6 shadow-sm">
-                <h3 className="text-sm font-semibold text-foreground mb-6 tracking-tight">Sentiment Trend (90 Days)</h3>
+                <h3 className="text-sm font-semibold text-foreground mb-6 tracking-tight">Review Trends per Brand (Weekly)</h3>
                 <ResponsiveContainer width="100%" height={300}>
-                    <LineChart data={data.sentimentTrend}>
+                    <LineChart data={data.brandTrend}>
                         <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
                         <XAxis
                             dataKey="week"
@@ -80,33 +91,29 @@ export function ExecutiveDashboard({ data }: ExecutiveDashboardProps) {
                                 color: 'var(--popover-foreground)'
                             }}
                         />
-                        <Line
-                            type="monotone"
-                            dataKey="positive"
-                            stroke="var(--primary)"
-                            strokeWidth={2}
-                            dot={false}
-                            activeDot={{ r: 4, strokeWidth: 0 }}
-                        />
-                        <Line
-                            type="monotone"
-                            dataKey="negative"
-                            stroke="var(--muted-foreground)"
-                            strokeWidth={2}
-                            dot={false}
-                            activeDot={{ r: 4, strokeWidth: 0 }}
-                        />
+                        {data.brandStats.map((brand, idx) => (
+                            <Line
+                                key={brand.brand}
+                                type="monotone"
+                                dataKey={brand.brand}
+                                stroke={BRAND_COLORS[idx % BRAND_COLORS.length]}
+                                strokeWidth={2}
+                                dot={false}
+                                activeDot={{ r: 4, strokeWidth: 0 }}
+                            />
+                        ))}
                     </LineChart>
                 </ResponsiveContainer>
-                <div className="flex items-center justify-center gap-6 mt-4 text-xs text-muted-foreground font-medium">
-                    <div className="flex items-center gap-2">
-                        <div className="w-2 h-2 rounded-full bg-primary" />
-                        Positive
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <div className="w-2 h-2 rounded-full bg-muted-foreground" />
-                        Negative
-                    </div>
+                <div className="flex flex-wrap items-center justify-center gap-4 mt-4 text-[10px] text-muted-foreground font-medium">
+                    {data.brandStats.map((brand, idx) => (
+                        <div key={brand.brand} className="flex items-center gap-1.5">
+                            <div
+                                className="w-1.5 h-1.5 rounded-full"
+                                style={{ backgroundColor: BRAND_COLORS[idx % BRAND_COLORS.length] }}
+                            />
+                            {brand.brand}
+                        </div>
+                    ))}
                 </div>
             </div>
 

@@ -216,10 +216,13 @@ export const VoCService = {
         return response.data;
     },
 
-    getDashboardStats: async (portfolioId?: number, brand?: string) => {
+    getDashboardStats: async (portfolioId?: number, brand?: string, platform?: string, startDate?: string, endDate?: string) => {
         const params: Record<string, unknown> = {};
         if (portfolioId) params.portfolio_id = portfolioId;
         if (brand) params.brand = brand;
+        if (platform) params.platform = platform;
+        if (startDate) params.start_date = startDate;
+        if (endDate) params.end_date = endDate;
         const response = await api.get('/api/user/dashboard-stats', { params });
         return response.data;
     },

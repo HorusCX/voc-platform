@@ -1614,6 +1614,9 @@ async def get_dashboard_stats(
     portfolio_id: int,
     brand: Optional[str] = None,
     job_id: Optional[str] = None,
+    platform: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -1626,10 +1629,30 @@ async def get_dashboard_stats(
         query = query.filter(Review.brand.in_(brands_list))
     if job_id:
         query = query.filter(Review.job_id == job_id)
+    if platform and platform != "all":
+        query = query.filter(Review.platform.ilike(f"%{platform}%"))
+    if start_date:
+        query = query.filter(Review.date >= start_date)
+    if end_date:
+        query = query.filter(Review.date <= end_date)
         
     reviews = query.all()
     if not reviews:
-        return None
+        return {
+            "totalReviews": 0,
+            "avgRating": 0,
+            "positivePercent": 0,
+            "negativePercent": 0,
+            "neutralPercent": 0,
+            "netSentiment": 0,
+            "sentimentTrend": [],
+            "brandTrend": [],
+            "brandStats": [],
+            "dimensionStats": [],
+            "topStrengths": [],
+            "topWeaknesses": [],
+            "platformStats": []
+        }
         
     total_reviews = len(reviews)
     positive = sum(1 for r in reviews if r.sentiment and r.sentiment.lower() == 'positive')
@@ -1648,6 +1671,7 @@ async def get_dashboard_stats(
     brand_map = {}
     platform_map = {}
     week_map = {}
+    brand_trend_map = {}
     
     for r in reviews:
         b_name = r.brand or "Unknown"
@@ -1682,6 +1706,11 @@ async def get_dashboard_stats(
                 if sent == "positive": week_map[wk_key]["positive"] += 1
                 elif sent == "negative": week_map[wk_key]["negative"] += 1
                 else: week_map[wk_key]["neutral"] += 1
+
+                # Brand trend
+                if wk_key not in brand_trend_map:
+                    brand_trend_map[wk_key] = {"week": wk_key, "year": iso_year, "week_num": iso_week}
+                brand_trend_map[wk_key][b_name] = brand_trend_map[wk_key].get(b_name, 0) + 1
             except Exception as e:
                 logger.error(f"Error processing trend date: {e}")
                 pass
@@ -1782,6 +1811,17 @@ async def get_dashboard_stats(
     ]
     platform_stats.sort(key=lambda x: x["count"], reverse=True)
     
+    # Sort trends
+    sorted_brand_weeks = sorted(brand_trend_map.values(), key=lambda x: (x["year"], x["week_num"]))
+    brand_trend_result = []
+    all_brands = list(brand_map.keys())
+    for wk in sorted_brand_weeks:
+        entry = {"week": wk["week"]}
+        for b in all_brands:
+            entry[b] = wk.get(b, 0)
+        brand_trend_result.append(entry)
+
+    # Sentiment trend
     trend_data = []
     for wk, wk_stats in week_map.items():
         trend_data.append({
@@ -1794,16 +1834,17 @@ async def get_dashboard_stats(
     trend_data.sort(key=lambda x: x["_sort_key"])
     for t in trend_data:
         del t["_sort_key"]
-    trend_data = trend_data[-12:]
-    
+    sentiment_trend = trend_data[-12:]
+
     return {
         "totalReviews": total_reviews,
         "avgRating": avg_rating,
-        "negativePercent": neg_pct,
         "positivePercent": pos_pct,
+        "negativePercent": neg_pct,
         "neutralPercent": neu_pct,
         "netSentiment": net_sentiment,
-        "sentimentTrend": trend_data,
+        "sentimentTrend": sentiment_trend,
+        "brandTrend": brand_trend_result[-12:],
         "brandStats": brand_stats_list,
         "dimensionStats": dimension_stats,
         "topStrengths": top_strengths,

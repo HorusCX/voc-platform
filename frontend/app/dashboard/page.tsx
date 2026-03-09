@@ -19,6 +19,10 @@ export default function DashboardPage() {
     const [error, setError] = useState<string | null>(null);
     const [availableBrands, setAvailableBrands] = useState<string[]>([]);
     const [selectedBrands, setSelectedBrands] = useState<string[]>([]);
+    const [availablePlatforms, setAvailablePlatforms] = useState<string[]>([]);
+    const [selectedPlatform, setSelectedPlatform] = useState<string>("all");
+    const [startDate, setStartDate] = useState<string>("");
+    const [endDate, setEndDate] = useState<string>("");
     const initialLoadDone = useRef(false);
 
     const { currentPortfolio } = usePortfolio();
@@ -38,13 +42,24 @@ export default function DashboardPage() {
                 return;
             }
 
-            const stats = await VoCService.getDashboardStats(currentPortfolio.id, brandStr === 'all' ? undefined : brandStr) as DashboardData | null;
+            const stats = await VoCService.getDashboardStats(
+                currentPortfolio.id,
+                brandStr === 'all' ? undefined : brandStr,
+                selectedPlatform === 'all' ? undefined : selectedPlatform,
+                startDate || undefined,
+                endDate || undefined
+            ) as DashboardData | null;
 
-            if (stats && stats.brandStats && stats.brandStats.length > 0) {
-                // Only update availableBrands if it's the very first load
+            if (stats && stats.brandStats) {
+                // Update available brands and platforms if it's the very first load
                 if (!initialLoadDone.current) {
                     const brands = stats.brandStats.map(b => b.brand).sort();
                     setAvailableBrands(brands);
+
+                    if (stats.platformStats) {
+                        setAvailablePlatforms(stats.platformStats.map(p => p.platform).sort());
+                    }
+
                     setSelectedBrands([]); // Default to all selected
                     initialLoadDone.current = true;
                 }
@@ -64,7 +79,7 @@ export default function DashboardPage() {
         } finally {
             setIsLoading(false);
         }
-    }, [selectedBrands, availableBrands.length, activeTab, currentPortfolio?.id]);
+    }, [selectedBrands, availableBrands.length, activeTab, currentPortfolio?.id, selectedPlatform, startDate, endDate]);
 
     useEffect(() => {
         processReviews();
@@ -116,9 +131,10 @@ export default function DashboardPage() {
                         </nav>
                     </div>
 
-                    {/* Brand Filter */}
-                    {availableBrands.length > 0 && (
-                        <div className="pt-3 mt-1">
+                    {/* Filters Row */}
+                    <div className="flex flex-wrap items-center gap-4 pt-3 mt-1">
+                        {/* Brand Filter */}
+                        {availableBrands.length > 0 && (
                             <BrandFilter
                                 availableBrands={availableBrands}
                                 selectedBrands={selectedBrands}
@@ -126,8 +142,58 @@ export default function DashboardPage() {
                                 onSelectAll={selectAllBrands}
                                 onDeselectAll={deselectAllBrands}
                             />
+                        )}
+
+                        {/* Platform Filter */}
+                        <div className="flex items-center gap-2">
+                            <span className="text-xs font-medium text-muted-foreground whitespace-nowrap">Platform:</span>
+                            <select
+                                value={selectedPlatform}
+                                onChange={(e) => setSelectedPlatform(e.target.value)}
+                                className="pl-3 pr-8 py-1.5 bg-background border border-dashed border-input rounded-md hover:border-ring/50 hover:bg-accent transition-colors text-xs font-medium text-muted-foreground appearance-none cursor-pointer focus:outline-none focus:ring-1 focus:ring-ring/20 min-w-[140px]"
+                            >
+                                <option value="all">All Platforms</option>
+                                {availablePlatforms.map(p => (
+                                    <option key={p} value={p}>{p}</option>
+                                ))}
+                            </select>
                         </div>
-                    )}
+
+                        {/* Date Range Filter */}
+                        <div className="flex items-center gap-2">
+                            <span className="text-xs font-medium text-muted-foreground whitespace-nowrap">Range:</span>
+                            <div className="flex items-center gap-1.5 bg-background border border-dashed border-input rounded-md px-2 py-1">
+                                <input
+                                    type="date"
+                                    value={startDate}
+                                    onChange={(e) => setStartDate(e.target.value)}
+                                    className="bg-transparent text-xs font-medium text-foreground focus:outline-none w-28 h-6 [color-scheme:dark]"
+                                />
+                                <span className="text-[10px] text-muted-foreground uppercase font-bold px-1">to</span>
+                                <input
+                                    type="date"
+                                    value={endDate}
+                                    onChange={(e) => setEndDate(e.target.value)}
+                                    className="bg-transparent text-xs font-medium text-foreground focus:outline-none w-28 h-6 [color-scheme:dark]"
+                                />
+                            </div>
+                        </div>
+
+                        {/* Clear Filters Button */}
+                        {(selectedPlatform !== 'all' || startDate !== '' || endDate !== '' || selectedBrands.length > 0) && (
+                            <button
+                                onClick={() => {
+                                    setSelectedPlatform('all');
+                                    setStartDate('');
+                                    setEndDate('');
+                                    setSelectedBrands([]);
+                                }}
+                                className="text-[10px] uppercase font-bold text-muted-foreground hover:text-foreground transition-colors px-2"
+                            >
+                                Clear
+                            </button>
+                        )}
+                    </div>
                 </div>
             </header>
 
