@@ -24,6 +24,7 @@ from services.chat_tools import (
     make_sql_analytics_tool,
     make_synthesize_reviews_tool,
     make_semantic_search_tool,
+    make_chart_tool,
 )
 
 logger = logging.getLogger(__name__)
@@ -158,6 +159,16 @@ Do NOT attempt to answer, rephrase, or partially answer out-of-scope questions.
 - When you cannot answer something, say so clearly and explain why
 - Respond in the same language the user writes in
 
+## Chart generation
+
+Use generate_chart when the user asks to "draw", "plot", "show a chart/graph/visualization", or requests a bar/line/pie/area chart.
+
+After the tool returns the JSON spec, output it wrapped in a markdown chart code block:
+```chart
+{paste JSON exactly as returned by the tool — do not modify it}
+```
+Do not modify the JSON. You may write a brief explanation before or after the block.
+
 Row Level Security is active — all data is automatically restricted to the current portfolio. Never add portfolio_id filters manually."""
 
 
@@ -203,6 +214,7 @@ def run_chat_agent(
         semantic_tool = make_semantic_search_tool(readonly_engine, portfolio_id, openai_key)
         if semantic_tool:
             tools.append(semantic_tool)
+        tools.append(make_chart_tool(readonly_engine, portfolio_id))
 
         # Build prompt with system context + conversation history placeholder
         prompt = ChatPromptTemplate.from_messages([
@@ -292,6 +304,7 @@ def run_chat_agent_streaming(
         semantic_tool = make_semantic_search_tool(readonly_engine, portfolio_id, openai_key)
         if semantic_tool:
             tools.append(semantic_tool)
+        tools.append(make_chart_tool(readonly_engine, portfolio_id))
 
         prompt = ChatPromptTemplate.from_messages([
             ("system", VOC_SYSTEM_PROMPT),

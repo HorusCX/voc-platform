@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, ChevronRight, Database, Search, FileText, Brain, CheckCircle2, Loader2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Database, Search, FileText, Brain, CheckCircle2, Loader2, BarChart2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ChatStreamEvent } from "@/lib/api";
 
@@ -17,12 +17,14 @@ const TOOL_ICON: Record<string, React.ReactNode> = {
     sql_analytics: <Database className="h-3.5 w-3.5 text-blue-400" />,
     synthesize_reviews: <FileText className="h-3.5 w-3.5 text-purple-400" />,
     semantic_search: <Search className="h-3.5 w-3.5 text-emerald-400" />,
+    generate_chart: <BarChart2 className="h-3.5 w-3.5 text-orange-400" />,
 };
 
 const TOOL_BADGE: Record<string, string> = {
     sql_analytics: "bg-blue-500/10 text-blue-400 border-blue-500/20",
     synthesize_reviews: "bg-purple-500/10 text-purple-400 border-purple-500/20",
     semantic_search: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+    generate_chart: "bg-orange-500/10 text-orange-400 border-orange-500/20",
 };
 
 export function ThinkingDisplay({ steps, isActive, elapsedSeconds }: ThinkingDisplayProps) {

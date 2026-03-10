@@ -9,6 +9,7 @@ import {
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ThinkingDisplay, type ThinkingStep } from "@/components/chat/ThinkingDisplay";
+import { ChatChart, type ChartSpec } from "@/components/chat/ChatChart";
 import { useSearchParams, useRouter } from "next/navigation";
 
 type Message = {
@@ -26,6 +27,62 @@ type Conversation = {
     updated_at: string;
     created_at: string;
 };
+
+type MessageSegment =
+    | { type: "text"; content: string }
+    | { type: "chart"; spec: ChartSpec };
+
+function parseMessageContent(content: string): MessageSegment[] {
+    const CHART_FENCE_RE = /```chart\n([\s\S]*?)\n```/g;
+    const segments: MessageSegment[] = [];
+    let lastIndex = 0;
+    let match: RegExpExecArray | null;
+
+    while ((match = CHART_FENCE_RE.exec(content)) !== null) {
+        if (match.index > lastIndex) {
+            const text = content.slice(lastIndex, match.index).trim();
+            if (text) segments.push({ type: "text", content: text });
+        }
+        try {
+            const spec = JSON.parse(match[1]) as ChartSpec;
+            if (spec.type && spec.data && spec.xKey && spec.yKeys) {
+                segments.push({ type: "chart", spec });
+            } else {
+                segments.push({ type: "text", content: match[0] });
+            }
+        } catch {
+            segments.push({ type: "text", content: match[0] });
+        }
+        lastIndex = match.index + match[0].length;
+    }
+
+    if (lastIndex < content.length) {
+        const remaining = content.slice(lastIndex).trim();
+        if (remaining) segments.push({ type: "text", content: remaining });
+    }
+    if (segments.length === 0) segments.push({ type: "text", content });
+    return segments;
+}
+
+function renderMessageContent(content: string) {
+    const segments = parseMessageContent(content);
+    if (segments.length === 1 && segments[0].type === "text") {
+        return (
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{segments[0].content}</ReactMarkdown>
+        );
+    }
+    return (
+        <>
+            {segments.map((seg, idx) =>
+                seg.type === "text" ? (
+                    <ReactMarkdown key={idx} remarkPlugins={[remarkGfm]}>{seg.content}</ReactMarkdown>
+                ) : (
+                    <ChatChart key={idx} spec={seg.spec} />
+                )
+            )}
+        </>
+    );
+}
 
 export default function ChatPage() {
     return (
@@ -415,9 +472,7 @@ function ChatPageInner() {
                                             {message.role === "user" ? (
                                                 <div className="whitespace-pre-wrap">{message.content}</div>
                                             ) : (
-                                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                                    {message.content}
-                                                </ReactMarkdown>
+                                                renderMessageContent(message.content)
                                             )}
                                         </div>
                                         <span className={`text-[10px] text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity ${message.role === "user" ? "text-right mr-1" : "text-left ml-1"}`}>
@@ -449,9 +504,7 @@ function ChatPageInner() {
                                         {/* Streaming answer tokens */}
                                         {streamingContent ? (
                                             <div className="bg-card border border-border rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm prose prose-sm dark:prose-invert max-w-none break-words text-[15px] leading-relaxed">
-                                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                                    {streamingContent}
-                                                </ReactMarkdown>
+                                                {renderMessageContent(streamingContent)}
                                                 <span className="inline-block w-0.5 h-4 bg-blue-400 animate-pulse ml-0.5 align-text-bottom" />
                                             </div>
                                         ) : thinkingSteps.length === 0 ? (
