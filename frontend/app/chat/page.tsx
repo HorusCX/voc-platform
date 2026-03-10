@@ -3,7 +3,6 @@
 import { useState, useRef, useEffect, Suspense } from "react";
 import { usePortfolio } from "@/contexts/PortfolioContext";
 import { VoCService } from "@/lib/api";
-import { AppLayout } from "@/components/layout/AppLayout";
 import {
     Send, Bot, User as UserIcon, Loader2, Sparkles, Database, MessageSquare, Plus, Trash2
 } from "lucide-react";
@@ -302,8 +301,7 @@ function ChatPageInner() {
     };
 
     return (
-        <AppLayout>
-            <div className="w-full max-w-[calc(100%-2rem)] ml-4 h-[calc(100vh-8rem)] flex bg-card rounded-xl border border-border overflow-hidden shadow-sm mt-4">
+        <div className="mx-4 h-[calc(100vh-8rem)] flex bg-card rounded-xl border border-border overflow-hidden shadow-sm mt-4">
 
                 {/* Sidebar History */}
                 <div className="w-64 border-r border-border bg-muted/20 flex flex-col hidden md:flex">
@@ -512,6 +510,5 @@ function ChatPageInner() {
                 </div>
 
             </div>
-        </AppLayout>
     );
 }

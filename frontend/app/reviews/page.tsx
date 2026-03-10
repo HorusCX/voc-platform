@@ -3,9 +3,8 @@
 import { useState, useEffect } from "react";
 import { ReviewData, fetchPaginatedUserReviewsFromAPI, fetchDashboardStatsFromAPI } from "@/lib/dashboard-utils";
 import UserMenu from "@/components/auth/UserMenu";
-import { Loader2, Search, ArrowUpDown, FilterX, Globe } from "lucide-react";
-import { FilterDropdown, PlatformIcon } from "@/components/ui/FilterDropdown";
-import { DateRangePicker } from "@/components/ui/DateRangePicker";
+import { Loader2, Search, ArrowUpDown } from "lucide-react";
+import { FiltersBar } from "@/components/ui/FiltersBar";
 import { usePortfolio } from "@/contexts/PortfolioContext";
 
 type SortField = 'date' | 'rating' | 'brand' | 'platform' | 'sentiment';
@@ -26,7 +25,7 @@ export default function ReviewsPage() {
 
     // Filter state
     const [searchQuery, setSearchQuery] = useState("");
-    const [selectedBrand, setSelectedBrand] = useState<string>("all");
+    const [selectedBrands, setSelectedBrands] = useState<string[]>([]);
     const [selectedPlatform, setSelectedPlatform] = useState<string>("all");
     const [startDate, setStartDate] = useState<string>("");
     const [endDate, setEndDate] = useState<string>("");
@@ -43,7 +42,7 @@ export default function ReviewsPage() {
     // Reset pagination to page 1 whenever filters or sorting change
     useEffect(() => {
         setCurrentPage(1);
-    }, [searchQuery, selectedBrand, selectedPlatform, startDate, endDate, sortField, sortOrder]);
+    }, [searchQuery, selectedBrands, selectedPlatform, startDate, endDate, sortField, sortOrder]);
 
     // Fire stats + first page of reviews in parallel on portfolio change (Fix 6)
     useEffect(() => {
@@ -83,6 +82,9 @@ export default function ReviewsPage() {
                     setIsLoading(false);
                     return;
                 }
+                const brandStr = selectedBrands.length > 0 && selectedBrands.length < availableBrands.length
+                    ? selectedBrands.join(',')
+                    : 'all';
                 const data = await fetchPaginatedUserReviewsFromAPI({
                     portfolio_id: currentPortfolio.id,
                     page: currentPage,
@@ -90,7 +92,7 @@ export default function ReviewsPage() {
                     sort_field: sortField,
                     sort_order: sortOrder,
                     search: searchQuery,
-                    brand: selectedBrand,
+                    brand: brandStr,
                     platform: selectedPlatform,
                     start_date: startDate,
                     end_date: endDate
@@ -107,7 +109,7 @@ export default function ReviewsPage() {
         }, 300); // 300ms debounce
 
         return () => clearTimeout(timeoutId);
-    }, [currentPage, itemsPerPage, sortField, sortOrder, searchQuery, selectedBrand, selectedPlatform, startDate, endDate, currentPortfolio?.id]);
+    }, [currentPage, itemsPerPage, sortField, sortOrder, searchQuery, selectedBrands, availableBrands.length, selectedPlatform, startDate, endDate, currentPortfolio?.id]);
 
     // Handle sort click
     const handleSort = (field: SortField) => {
@@ -120,14 +122,6 @@ export default function ReviewsPage() {
     };
 
     // Memoize the filtered reviews out; backend handles it now.
-
-    const clearFilters = () => {
-        setSearchQuery("");
-        setSelectedBrand("all");
-        setSelectedPlatform("all");
-        setStartDate("");
-        setEndDate("");
-    };
 
     const openReviewModal = (review: ReviewData) => {
         setSelectedReview(review);
@@ -175,58 +169,33 @@ export default function ReviewsPage() {
                                 placeholder="Search reviews..."
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
-                                className="h-9 pl-9 pr-4 w-full bg-background border border-input rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50 transition-all"
+                                className="h-8 pl-9 pr-4 w-full bg-background border border-input rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50 transition-all"
                             />
                         </div>
 
                         <div className="w-px h-6 bg-border hidden sm:block" />
 
-                        {/* Brand Filter */}
-                        <FilterDropdown
-                            value={selectedBrand}
-                            onChange={setSelectedBrand}
-                            options={[
-                                { value: "all", label: "All Brands" },
-                                ...availableBrands.map(b => ({ value: b, label: b }))
-                            ]}
-                            placeholder="Brand"
-                            size="md"
-                        />
-
-                        {/* Platform Filter */}
-                        <FilterDropdown
-                            value={selectedPlatform}
-                            onChange={setSelectedPlatform}
-                            icon={<Globe className="w-4 h-4" />}
-                            options={[
-                                { value: "all", label: "All Platforms", icon: <Globe className="w-4 h-4 text-muted-foreground" /> },
-                                ...availablePlatforms.map(p => ({
-                                    value: p,
-                                    label: p,
-                                    icon: <PlatformIcon platform={p} />,
-                                }))
-                            ]}
-                            size="md"
-                        />
-
-                        {/* Date Range Filter */}
-                        <DateRangePicker
+                        <FiltersBar
+                            availableBrands={availableBrands}
+                            selectedBrands={selectedBrands}
+                            onBrandsChange={setSelectedBrands}
+                            availablePlatforms={availablePlatforms}
+                            selectedPlatform={selectedPlatform}
+                            onPlatformChange={setSelectedPlatform}
                             startDate={startDate}
                             endDate={endDate}
-                            onStartChange={setStartDate}
-                            onEndChange={setEndDate}
-                            variant="A"
-                            size="md"
+                            onStartDateChange={setStartDate}
+                            onEndDateChange={setEndDate}
+                            size="sm"
                         />
 
-                        {/* Clear Filters */}
-                        {(searchQuery || selectedBrand !== "all" || selectedPlatform !== "all" || startDate || endDate) && (
+                        {/* Clear search if active */}
+                        {searchQuery && (
                             <button
-                                onClick={clearFilters}
-                                className="h-9 flex items-center gap-1.5 px-3 text-sm text-muted-foreground hover:text-destructive hover:bg-destructive/5 border border-input rounded-lg transition-colors whitespace-nowrap"
+                                onClick={() => setSearchQuery("")}
+                                className="h-8 px-3 text-xs font-medium text-muted-foreground hover:text-destructive hover:bg-destructive/5 border border-input rounded-lg transition-colors"
                             >
-                                <FilterX className="h-3.5 w-3.5" />
-                                Clear
+                                Clear search
                             </button>
                         )}
                     </div>

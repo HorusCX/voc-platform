@@ -6,9 +6,8 @@ import { OperationalDashboard } from "@/components/dashboard/OperationalDashboar
 import {
     DashboardData,
 } from "@/lib/dashboard-utils";
-import { Loader2, BarChart2, List, Globe } from "lucide-react";
-import { DateRangePicker } from "@/components/ui/DateRangePicker";
-import { FilterDropdown, PlatformIcon } from "@/components/ui/FilterDropdown";
+import { Loader2, BarChart2, List } from "lucide-react";
+import { FiltersBar } from "@/components/ui/FiltersBar";
 import { usePortfolio } from "@/contexts/PortfolioContext";
 import { VoCService } from "@/lib/api";
 
@@ -120,59 +119,19 @@ export default function DashboardPage() {
                         {/* Divider */}
                         <div className="w-px h-6 bg-border mx-1" />
 
-                        {/* Brand Filter */}
-                        {availableBrands.length > 0 && (
-                            <FilterDropdown
-                                multiSelect
-                                placeholder="Brands"
-                                allLabel="All"
-                                value={selectedBrands}
-                                onChange={setSelectedBrands}
-                                options={availableBrands.map(b => ({ value: b, label: b }))}
-                                size="sm"
-                            />
-                        )}
-
-                        {/* Platform Filter */}
-                        <FilterDropdown
-                            value={selectedPlatform}
-                            onChange={setSelectedPlatform}
-                            icon={<Globe className="w-4 h-4" />}
-                            options={[
-                                { value: "all", label: "All Platforms", icon: <Globe className="w-4 h-4 text-muted-foreground" /> },
-                                ...availablePlatforms.map(p => ({
-                                    value: p,
-                                    label: p,
-                                    icon: <PlatformIcon platform={p} />,
-                                }))
-                            ]}
-                            size="sm"
-                        />
-
-                        {/* Date Range Filter */}
-                        <DateRangePicker
+                        <FiltersBar
+                            availableBrands={availableBrands}
+                            selectedBrands={selectedBrands}
+                            onBrandsChange={setSelectedBrands}
+                            availablePlatforms={availablePlatforms}
+                            selectedPlatform={selectedPlatform}
+                            onPlatformChange={setSelectedPlatform}
                             startDate={startDate}
                             endDate={endDate}
-                            onStartChange={setStartDate}
-                            onEndChange={setEndDate}
-                            variant="D"
+                            onStartDateChange={setStartDate}
+                            onEndDateChange={setEndDate}
                             size="sm"
                         />
-
-                        {/* Clear Filters Button */}
-                        {(selectedPlatform !== 'all' || startDate !== '' || endDate !== '' || selectedBrands.length > 0) && (
-                            <button
-                                onClick={() => {
-                                    setSelectedPlatform('all');
-                                    setStartDate('');
-                                    setEndDate('');
-                                    setSelectedBrands([]);
-                                }}
-                                className="h-8 px-3 text-xs font-medium text-muted-foreground hover:text-destructive hover:bg-destructive/5 border border-input rounded-lg transition-colors"
-                            >
-                                Clear filters
-                            </button>
-                        )}
                     </div>
                 </div>
             </header>
