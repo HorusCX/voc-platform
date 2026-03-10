@@ -80,6 +80,7 @@ export interface Company {
     google_maps_links?: (string | { name: string; url: string; place_id?: string; reviews_count?: number; country?: string })[];
     trustpilot_link?: string;
     logo_url?: string;
+    arabic_name?: string;
     is_main?: boolean;
     portfolio_id?: number;
     review_count?: number;

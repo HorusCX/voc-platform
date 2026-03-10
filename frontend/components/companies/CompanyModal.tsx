@@ -14,6 +14,7 @@ interface CompanyModalProps {
 export function CompanyModal({ isOpen, onClose, onSave, initialData }: CompanyModalProps) {
     const [formData, setFormData] = useState<Partial<Company>>({
         company_name: "",
+        arabic_name: "",
         website: "",
         description: "",
         apple_id: "",
@@ -42,6 +43,7 @@ export function CompanyModal({ isOpen, onClose, onSave, initialData }: CompanyMo
             } else {
                 setFormData({
                     company_name: "",
+                    arabic_name: "",
                     website: "",
                     description: "",
                     apple_id: "",
@@ -132,6 +134,19 @@ export function CompanyModal({ isOpen, onClose, onSave, initialData }: CompanyMo
                                 />
                             </div>
                             <div className="space-y-2">
+                                <label className="text-xs font-bold uppercase tracking-widest text-zinc-500 ml-1">Arabic Name</label>
+                                <input
+                                    type="text"
+                                    name="arabic_name"
+                                    value={formData.arabic_name || ""}
+                                    onChange={handleChange}
+                                    className="w-full rounded-xl border border-zinc-300 bg-zinc-50 px-4 py-3 text-sm text-zinc-900 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all placeholder:text-zinc-400"
+                                    placeholder="e.g. أكمي كورب"
+                                    dir="rtl"
+                                />
+                            </div>
+                        </div>
+                        <div className="space-y-2">
                                 <label className="text-xs font-bold uppercase tracking-widest text-zinc-500 ml-1">Official Website</label>
                                 <input
                                     type="url"
@@ -141,7 +156,6 @@ export function CompanyModal({ isOpen, onClose, onSave, initialData }: CompanyMo
                                     className="w-full rounded-xl border border-zinc-300 bg-zinc-50 px-4 py-3 text-sm text-zinc-900 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all placeholder:text-zinc-400"
                                     placeholder="https://acme.com"
                                 />
-                            </div>
                         </div>
 
                         {/* Logo Section */}

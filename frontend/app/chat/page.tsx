@@ -409,7 +409,7 @@ function ChatPageInner() {
                                             px-4 py-3 rounded-2xl text-[15px] leading-relaxed shadow-sm w-full
                                             ${message.role === "user"
                                                 ? "bg-primary text-primary-foreground rounded-tr-sm"
-                                                : "bg-card border border-border text-card-foreground rounded-tl-sm prose prose-sm dark:prose-invert max-w-none break-words"
+                                                : "bg-card border border-border text-card-foreground rounded-tl-sm prose prose-sm dark:prose-invert max-w-none break-words [&_h3]:mt-4 [&_h3]:mb-1 [&_h3:first-child]:mt-0 [&_p]:my-1.5 [&_ul]:my-1 [&_ol]:my-1"
                                             }
                                         `}>
                                             {message.role === "user" ? (
@@ -448,7 +448,7 @@ function ChatPageInner() {
                                         />
                                         {/* Streaming answer tokens */}
                                         {streamingContent ? (
-                                            <div className="bg-card border border-border rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm prose prose-sm dark:prose-invert max-w-none break-words text-[15px] leading-relaxed">
+                                            <div className="bg-card border border-border rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm prose prose-sm dark:prose-invert max-w-none break-words text-[15px] leading-relaxed [&_h3]:mt-4 [&_h3]:mb-1 [&_h3:first-child]:mt-0 [&_p]:my-1.5 [&_ul]:my-1 [&_ol]:my-1">
                                                 <ReactMarkdown remarkPlugins={[remarkGfm]}>
                                                     {streamingContent}
                                                 </ReactMarkdown>
