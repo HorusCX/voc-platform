@@ -9,12 +9,15 @@ import {
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { ThinkingDisplay, type ThinkingStep } from "@/components/chat/ThinkingDisplay";
 
 type Message = {
     id: string;
     role: "user" | "ai";
     content: string;
     timestamp: Date;
+    thinkingSteps?: ThinkingStep[];
+    thinkingSeconds?: number;
 };
 
 type Conversation = {
@@ -35,6 +38,12 @@ export default function ChatPage() {
     const [inputValue, setInputValue] = useState("");
     const [isLoading, setIsLoading] = useState(false);
     const [isFetchingHistory, setIsFetchingHistory] = useState(false);
+
+    // Streaming / thinking state
+    const [streamingContent, setStreamingContent] = useState("");
+    const [thinkingSteps, setThinkingSteps] = useState<ThinkingStep[]>([]);
+    const [isThinking, setIsThinking] = useState(false);
+    const thinkingStartRef = useRef<number | null>(null);
 
     // Auto-scroll to bottom of messages
     const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -167,8 +176,7 @@ export default function ChatPage() {
             timestamp: new Date()
         };
 
-        // If it's a new chat, temporarily hide the welcome message
-        if (!selectedConversationId && messages.length === 1 && messages[0].id === 'welcome') {
+        if (!selectedConversationId && messages.length === 1 && messages[0].id === "welcome") {
             setMessages([userMsg]);
         } else {
             setMessages(prev => [...prev, userMsg]);
@@ -176,25 +184,65 @@ export default function ChatPage() {
 
         setInputValue("");
         setIsLoading(true);
+        setIsThinking(true);
+        setThinkingSteps([]);
+        setStreamingContent("");
+        thinkingStartRef.current = Date.now();
+
+        const localSteps: ThinkingStep[] = [];
+        let finalConvId: number | undefined;
+        let tokenAccumulator = "";
 
         try {
-            // Send the optional conversation_id
-            const data = await VoCService.sendChatMessage(selectedPortfolioId, messageText, selectedConversationId || undefined);
+            await VoCService.streamChatMessage(
+                selectedPortfolioId,
+                messageText,
+                selectedConversationId ?? undefined,
 
-            // Add AI response to UI
+                (evt) => {
+                    if (evt.type === "token") {
+                        tokenAccumulator += evt.content ?? "";
+                        setStreamingContent(tokenAccumulator);
+                        scrollToBottom();
+                    } else if (evt.type === "tool_call" || evt.type === "tool_result" || evt.type === "thinking") {
+                        const step: ThinkingStep = {
+                            ...evt,
+                            id: `${evt.type}-${Date.now()}-${Math.random()}`,
+                        };
+                        localSteps.push(step);
+                        setThinkingSteps([...localSteps]);
+                    }
+                },
+
+                (convId) => { finalConvId = convId; },
+
+                (errMsg) => {
+                    setMessages(prev => [...prev, {
+                        id: (Date.now() + 1).toString(),
+                        role: "ai",
+                        content: `Sorry, I encountered an error: ${errMsg}`,
+                        timestamp: new Date(),
+                    }]);
+                }
+            );
+
+            const elapsedSeconds = thinkingStartRef.current
+                ? Math.round((Date.now() - thinkingStartRef.current) / 1000)
+                : 0;
+
             const aiMsg: Message = {
                 id: (Date.now() + 1).toString(),
                 role: "ai",
-                content: data.response,
-                timestamp: new Date()
+                content: tokenAccumulator || "(No response received)",
+                timestamp: new Date(),
+                thinkingSteps: localSteps.length > 0 ? localSteps : undefined,
+                thinkingSeconds: elapsedSeconds,
             };
 
             setMessages(prev => [...prev, aiMsg]);
 
-            // If it was a new conversation, update the ID and refresh the list to show the new title
-            if (!selectedConversationId && data.conversation_id) {
-                setSelectedConversationId(data.conversation_id);
-                // Refresh list to get the auto-generated title
+            if (!selectedConversationId && finalConvId) {
+                setSelectedConversationId(finalConvId);
                 const updatedConversations = await VoCService.getConversations(selectedPortfolioId);
                 setConversations(updatedConversations);
             }
@@ -202,16 +250,18 @@ export default function ChatPage() {
         } catch (error: unknown) {
             console.error("Chat Error:", error);
             const errorMessage = error instanceof Error ? error.message : "An unknown error occurred";
-            // Add error message to UI
-            const errorMsg: Message = {
+            setMessages(prev => [...prev, {
                 id: (Date.now() + 1).toString(),
                 role: "ai",
                 content: `Sorry, I encountered an error: ${errorMessage}`,
-                timestamp: new Date()
-            };
-            setMessages(prev => [...prev, errorMsg]);
+                timestamp: new Date(),
+            }]);
         } finally {
             setIsLoading(false);
+            setIsThinking(false);
+            setStreamingContent("");
+            setThinkingSteps([]);
+            thinkingStartRef.current = null;
         }
     };
 
@@ -323,7 +373,14 @@ export default function ChatPage() {
                                     </div>
 
                                     {/* Bubble */}
-                                    <div className="flex flex-col gap-1 w-full min-w-0">
+                                    <div className="flex flex-col gap-2 w-full min-w-0">
+                                        {message.role === "ai" && message.thinkingSteps && message.thinkingSteps.length > 0 && (
+                                            <ThinkingDisplay
+                                                steps={message.thinkingSteps}
+                                                isActive={false}
+                                                elapsedSeconds={message.thinkingSeconds ?? 0}
+                                            />
+                                        )}
                                         <div className={`
                                             px-4 py-3 rounded-2xl text-[15px] leading-relaxed shadow-sm w-full
                                             ${message.role === "user"
@@ -347,19 +404,42 @@ export default function ChatPage() {
                             </div>
                         ))}
 
-                        {/* Loading Indicator */}
+                        {/* Streaming / Thinking Indicator */}
                         {isLoading && (
                             <div className="flex justify-start">
                                 <div className="flex gap-3 max-w-[85%]">
                                     <div className="flex-shrink-0 h-8 w-8 rounded-full bg-blue-600/10 border border-blue-600/20 text-blue-600 flex items-center justify-center mt-1">
                                         <Bot className="h-5 w-5" />
                                     </div>
-                                    <div className="bg-card border border-border rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm flex items-center h-[46px]">
-                                        <div className="flex space-x-1.5">
-                                            <div className="w-2 h-2 bg-muted-foreground/40 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                                            <div className="w-2 h-2 bg-muted-foreground/40 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                                            <div className="w-2 h-2 bg-muted-foreground/40 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
-                                        </div>
+                                    <div className="flex flex-col gap-2 w-full">
+                                        {/* Live thinking panel */}
+                                        <ThinkingDisplay
+                                            steps={thinkingSteps}
+                                            isActive={isThinking}
+                                            elapsedSeconds={
+                                                thinkingStartRef.current
+                                                    ? Math.round((Date.now() - thinkingStartRef.current) / 1000)
+                                                    : 0
+                                            }
+                                        />
+                                        {/* Streaming answer tokens */}
+                                        {streamingContent ? (
+                                            <div className="bg-card border border-border rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm prose prose-sm dark:prose-invert max-w-none break-words text-[15px] leading-relaxed">
+                                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                                    {streamingContent}
+                                                </ReactMarkdown>
+                                                <span className="inline-block w-0.5 h-4 bg-blue-400 animate-pulse ml-0.5 align-text-bottom" />
+                                            </div>
+                                        ) : thinkingSteps.length === 0 ? (
+                                            /* Fallback dots before first event arrives */
+                                            <div className="bg-card border border-border rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm flex items-center h-[46px]">
+                                                <div className="flex space-x-1.5">
+                                                    <div className="w-2 h-2 bg-muted-foreground/40 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+                                                    <div className="w-2 h-2 bg-muted-foreground/40 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                                                    <div className="w-2 h-2 bg-muted-foreground/40 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+                                                </div>
+                                            </div>
+                                        ) : null}
                                     </div>
                                 </div>
                             </div>

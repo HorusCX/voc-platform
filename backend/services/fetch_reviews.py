@@ -6,6 +6,8 @@ import os
 from datetime import datetime
 import concurrent.futures
 import logging
+import time as _time
+import functools
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -27,6 +29,17 @@ import boto3
 from botocore.exceptions import NoCredentialsError
 
 logger = logging.getLogger(__name__)
+
+def timed(fn):
+    """Decorator that logs wall-clock time for any function call."""
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        t0 = _time.perf_counter()
+        result = fn(*args, **kwargs)
+        elapsed_ms = (_time.perf_counter() - t0) * 1000
+        logger.info(f"TIMED {fn.__name__} {elapsed_ms:.1f}ms")
+        return result
+    return wrapper
 
 # Import Google Maps Scraper (lazy or direct)
 
@@ -187,6 +200,7 @@ def scrape_app_store(brand_name, app_id, since_date=None):
     return df
 
 # MAIN LOGIC
+@timed
 def save_reviews_to_db(job_id: str, df: pd.DataFrame, portfolio_id: int):
     """Bulk insert reviews from DataFrame into the reviews table."""
     if df.empty:
@@ -257,6 +271,44 @@ def save_reviews_to_db(job_id: str, df: pd.DataFrame, portfolio_id: int):
         db.close()
 
 
+def _fetch_latest_dates_batch(portfolio_id: int, brand_names: list) -> dict:
+    """
+    Fetch the most recent review date per brand per platform in a single query.
+    Returns {brand_name: {play, app, maps, tp: max_date | None}}.
+    Replaces 4 × N individual MAX queries with one GROUP BY query.
+    """
+    from sqlalchemy import func, case as sa_case
+    db = SessionLocal()
+    try:
+        rows = db.query(
+            Review.brand,
+            func.max(sa_case((Review.platform.like("Google Play%"), Review.date), else_=None)).label("max_play"),
+            func.max(sa_case((Review.platform.like("App Store%"),   Review.date), else_=None)).label("max_app"),
+            func.max(sa_case((Review.platform.like("Google Maps%"), Review.date), else_=None)).label("max_maps"),
+            func.max(sa_case((Review.platform == "Trustpilot",      Review.date), else_=None)).label("max_tp"),
+        ).filter(
+            Review.portfolio_id == portfolio_id,
+            Review.brand.in_(brand_names),
+        ).group_by(Review.brand).all()
+
+        result = {}
+        for row in rows:
+            result[row.brand] = {
+                "play": pd.to_datetime(row.max_play).tz_localize(None) if row.max_play else None,
+                "app":  pd.to_datetime(row.max_app).tz_localize(None)  if row.max_app  else None,
+                "maps": pd.to_datetime(row.max_maps).tz_localize(None) if row.max_maps else None,
+                "tp":   pd.to_datetime(row.max_tp).tz_localize(None)   if row.max_tp   else None,
+            }
+        logger.info(f"BATCH dates fetched for {len(result)}/{len(brand_names)} brands in 1 query")
+        return result
+    except Exception as e:
+        logger.error(f"Error batch-fetching latest dates: {e}")
+        return {}
+    finally:
+        db.close()
+
+
+@timed
 def run_scraper_service(job_id, brands_list, portfolio_id, progress_callback=None):
     """
     Main function to run scraping. Saves result to backend/data/{job_id}.csv
@@ -266,10 +318,15 @@ def run_scraper_service(job_id, brands_list, portfolio_id, progress_callback=Non
         progress_callback("Starting scraping job...")
 
     all_dfs = []
-    
+
+    # Batch-fetch latest review dates for all brands in one DB query (Fix 3)
+    brand_names_all = [b.get('name') or b.get('company_name') for b in brands_list
+                       if b.get('name') or b.get('company_name')]
+    latest_dates = _fetch_latest_dates_batch(portfolio_id, brand_names_all) if portfolio_id else {}
+
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
         future_map = {}
-        
+
         for brand in brands_list:
             name = brand.get('name') or brand.get('company_name')
             if not name: continue
@@ -298,53 +355,12 @@ def run_scraper_service(job_id, brands_list, portfolio_id, progress_callback=Non
                     unique_links.append(l)
             gmaps_links = unique_links
             
-            since_date_play = None
-            since_date_app = None
-            
-            if portfolio_id:
-                try:
-                    db = SessionLocal()
-                    from sqlalchemy import func
-                    
-                    max_date_play = db.query(func.max(Review.date)).filter(
-                        Review.portfolio_id == portfolio_id, 
-                        Review.brand == name, 
-                        Review.platform.like("Google Play%")
-                    ).scalar()
-                    if max_date_play:
-                        since_date_play = pd.to_datetime(max_date_play).tz_localize(None)
-                    
-                    max_date_app = db.query(func.max(Review.date)).filter(
-                        Review.portfolio_id == portfolio_id, 
-                        Review.brand == name, 
-                        Review.platform.like("App Store%")
-                    ).scalar()
-                    if max_date_app:
-                        since_date_app = pd.to_datetime(max_date_app).tz_localize(None)
-                    
-                    # Fetch since_date for Google Maps
-                    since_date_maps = None
-                    max_date_maps = db.query(func.max(Review.date)).filter(
-                        Review.portfolio_id == portfolio_id, 
-                        Review.brand == name, 
-                        Review.platform.like("Google Maps%")
-                    ).scalar()
-                    if max_date_maps:
-                        since_date_maps = pd.to_datetime(max_date_maps).tz_localize(None)
-
-                    # Fetch since_date for Trustpilot
-                    since_date_tp = None
-                    max_date_tp = db.query(func.max(Review.date)).filter(
-                        Review.portfolio_id == portfolio_id, 
-                        Review.brand == name, 
-                        Review.platform == "Trustpilot"
-                    ).scalar()
-                    if max_date_tp:
-                        since_date_tp = pd.to_datetime(max_date_tp).tz_localize(None)
-
-                    db.close()
-                except Exception as e:
-                    logger.error(f"Error fetching latest dates for {name}: {e}")
+            # Look up pre-fetched batch dates — no DB call per brand (Fix 3)
+            dates = latest_dates.get(name, {})
+            since_date_play = dates.get("play")
+            since_date_app  = dates.get("app")
+            since_date_maps = dates.get("maps")
+            since_date_tp   = dates.get("tp")
 
             if RUN_GOOGLE_PLAY and android_id:
                 f = executor.submit(scrape_google_play, name, android_id, since_date_play)
@@ -363,42 +379,42 @@ def run_scraper_service(job_id, brands_list, portfolio_id, progress_callback=Non
                 if "kcal" in name.lower() or (brand.get('website') and ".ae" in brand.get('website').lower()):
                     default_loc = "United Arab Emirates"
                 
-                # Check each location in DB to decide if it's new or existing
-                db = SessionLocal()
-                try:
-                    for link_data in gmaps_links:
-                        if not link_data: continue
-                        
-                        target = ""
-                        if isinstance(link_data, dict):
-                            place_id = link_data.get("place_id", "")
-                            url = link_data.get("url", "")
-                            location_name = link_data.get("name", "")
-                            target = f"place_id:{place_id}" if place_id else (url or location_name)
-                        else:
-                            target = link_data
-                        
-                        if not target: continue
+                # Build all targets without any DB calls (Fix 4)
+                link_targets = []
+                for link_data in gmaps_links:
+                    if not link_data: continue
+                    if isinstance(link_data, dict):
+                        place_id = link_data.get("place_id", "")
+                        url = link_data.get("url", "")
+                        location_name = link_data.get("name", "")
+                        target = f"place_id:{place_id}" if place_id else (url or location_name)
+                    else:
+                        target = link_data
+                    if target:
+                        link_targets.append(target)
 
-                        # Check if this specific location has any reviews in DB
-                        has_reviews = db.query(Review.id).filter(
+                # Single IN query to check all locations at once (Fix 4)
+                existing_locations: set = set()
+                if link_targets:
+                    db = SessionLocal()
+                    try:
+                        existing_rows = db.query(Review.source_location).filter(
                             Review.portfolio_id == portfolio_id,
                             Review.brand == name,
-                            Review.source_location == target
-                        ).first() is not None
+                            Review.source_location.in_(link_targets),
+                        ).distinct().all()
+                        existing_locations = {row.source_location for row in existing_rows}
+                        logger.info(f"Location check for {name}: {len(link_targets)} targets, 1 query, {len(existing_locations)} existing")
+                    finally:
+                        db.close()
 
-                        loc_item = {
-                            "keyword": target, 
-                            "name": target, 
-                            "location": default_loc
-                        }
-
-                        if has_reviews:
-                            batch_locations_existing.append(loc_item)
-                        else:
-                            batch_locations_new.append(loc_item)
-                finally:
-                    db.close()
+                # Classify without further DB calls
+                for target in link_targets:
+                    loc_item = {"keyword": target, "name": target, "location": default_loc}
+                    if target in existing_locations:
+                        batch_locations_existing.append(loc_item)
+                    else:
+                        batch_locations_new.append(loc_item)
 
                 from services.fetch_maps_reviews import scrape_multiple_locations
                 

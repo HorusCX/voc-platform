@@ -455,6 +455,24 @@ Remember: Return ONLY the JSON object. No explanations, no markdown code blocks,
                     
                     db_session.commit()
                     logger.info(f"💾 Updated {len(db_reviews)} reviews with AI analysis in database")
+
+                    # Generate embeddings for semantic search (non-blocking — failures don't affect analysis)
+                    openai_key = os.getenv("OPENAI_API_KEY")
+                    if openai_key:
+                        try:
+                            from services.embeddings import embed_single_review
+                            embedded_count = 0
+                            for review in db_reviews:
+                                if review.text and review.embedding is None:
+                                    vector = embed_single_review(review.text, openai_key)
+                                    if vector is not None:
+                                        review.embedding = vector
+                                        embedded_count += 1
+                            if embedded_count > 0:
+                                db_session.commit()
+                                logger.info(f"📐 Embedded {embedded_count} reviews for semantic search")
+                        except Exception as embed_err:
+                            logger.warning(f"Embedding step skipped (non-critical): {embed_err}")
         finally:
             db_session.close()
     except Exception as e:

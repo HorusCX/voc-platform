@@ -65,11 +65,6 @@ export default function DashboardPage() {
                 }
 
                 setDashboardData(stats);
-
-                // Set tab if not set
-                if (!activeTab) {
-                    setActiveTab('executive');
-                }
             } else {
                 setError("No data found for this analysis.");
             }
@@ -79,7 +74,7 @@ export default function DashboardPage() {
         } finally {
             setIsLoading(false);
         }
-    }, [selectedBrands, availableBrands.length, activeTab, currentPortfolio?.id, selectedPlatform, startDate, endDate]);
+    }, [selectedBrands, availableBrands.length, currentPortfolio?.id, selectedPlatform, startDate, endDate]);
 
     useEffect(() => {
         processReviews();

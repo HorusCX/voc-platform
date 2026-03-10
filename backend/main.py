@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 import logging
 import json
 import time
+import threading
 
 import boto3
 import botocore
@@ -27,7 +28,10 @@ from services.discover_maps_locations import discover_maps_links
 from services.fetch_app_ids import resolve_app_ids
 from services.fetch_reviews import run_scraper_service
 from services.analyze_reviews import generate_dimensions, analyze_reviews
-from services.chat_agent import run_chat_agent
+from services.chat_agent import run_chat_agent, run_chat_agent_streaming
+from fastapi.responses import StreamingResponse
+import queue as stdlib_queue
+from services.embeddings import embed_portfolio_reviews, ensure_pgvector_setup
 
 # Database & Auth
 from database import init_db, get_db, User, CompanyModel, Review, Dimension, get_user_limits, SessionLocal, Portfolio, user_portfolios, PortfolioInvitation, Conversation, ChatMessage
@@ -37,7 +41,7 @@ from auth import (
 )
 from services.email_service import send_invitation_email
 from sqlalchemy.orm import Session
-from sqlalchemy import or_, asc, desc, cast, Text, select
+from sqlalchemy import or_, asc, desc, cast, Text, select, func, case, extract
 
 
 
@@ -68,6 +72,17 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+import time as _time
+
+@app.middleware("http")
+async def add_timing_header(request, call_next):
+    t0 = _time.perf_counter()
+    response = await call_next(request)
+    elapsed_ms = (_time.perf_counter() - t0) * 1000
+    response.headers["X-Response-Time-Ms"] = f"{elapsed_ms:.1f}"
+    logger.info(f"PERF {request.method} {request.url.path} {elapsed_ms:.1f}ms")
+    return response
 
 @app.get("/api/debug/version")
 def debug_version():
@@ -879,10 +894,24 @@ def portfolio_chat(
     )
     db.add(user_chat_msg)
     db.commit()
-    
-    # 4. Call the SQL Agent backend
+
+    # Fetch the last 6 prior messages for conversation context (excluding the one just saved)
+    prior_messages = (
+        db.query(ChatMessage)
+        .filter(
+            ChatMessage.conversation_id == conversation_id,
+            ChatMessage.id != user_chat_msg.id,
+        )
+        .order_by(ChatMessage.created_at.desc())
+        .limit(6)
+        .all()
+    )
+    prior_messages.reverse()  # chronological order
+    conversation_history = [{"role": m.role, "content": m.content} for m in prior_messages]
+
+    # 4. Call the multi-tool VoC Agent
     try:
-        response_text = run_chat_agent(portfolio_id, user_message)
+        response_text = run_chat_agent(portfolio_id, user_message, conversation_history=conversation_history)
         
         # Save AI Message
         ai_chat_msg = ChatMessage(
@@ -901,6 +930,177 @@ def portfolio_chat(
         logger.error(f"❌ Chat processing error: {e}")
         raise HTTPException(status_code=500, detail="AI processing failed.")
 
+
+@app.post("/api/portfolios/{portfolio_id}/chat/stream")
+async def portfolio_chat_stream(
+    portfolio_id: int,
+    request: ChatMessageRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Streaming chat endpoint — returns Server-Sent Events.
+    Event types: tool_call | tool_result | thinking | token | done | error
+    """
+    # 1. Auth & validation
+    check_portfolio_access(db, current_user.id, portfolio_id)
+    user_message = request.message.strip()
+    if not user_message:
+        raise HTTPException(status_code=400, detail="Message cannot be empty")
+
+    logger.info(f"💬 Streaming Chat Request for Portfolio {portfolio_id}: {user_message[:50]}...")
+
+    # 2. Handle conversation (create/fetch) and save user message — before streaming starts
+    conversation_id = request.conversation_id
+    conversation = None
+
+    if conversation_id:
+        conversation = db.query(Conversation).filter(
+            Conversation.id == conversation_id,
+            Conversation.user_id == current_user.id
+        ).first()
+        if not conversation:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        conversation.updated_at = datetime.utcnow()
+    else:
+        title = user_message[:50] + "..." if len(user_message) > 50 else user_message
+        conversation = Conversation(
+            portfolio_id=portfolio_id,
+            user_id=current_user.id,
+            title=title
+        )
+        db.add(conversation)
+        db.commit()
+        db.refresh(conversation)
+        conversation_id = conversation.id
+
+    user_chat_msg = ChatMessage(conversation_id=conversation_id, role="user", content=user_message)
+    db.add(user_chat_msg)
+    db.commit()
+
+    # 3. Fetch conversation history
+    prior_messages = (
+        db.query(ChatMessage)
+        .filter(
+            ChatMessage.conversation_id == conversation_id,
+            ChatMessage.id != user_chat_msg.id,
+        )
+        .order_by(ChatMessage.created_at.desc())
+        .limit(6)
+        .all()
+    )
+    prior_messages.reverse()
+    conversation_history = [{"role": m.role, "content": m.content} for m in prior_messages]
+
+    # 4. Set up queue and run agent in background thread
+    event_queue: stdlib_queue.Queue = stdlib_queue.Queue()
+    agent_result: list = []  # mutable container for the thread's return value
+
+    def run_agent_thread() -> None:
+        output = run_chat_agent_streaming(
+            portfolio_id=portfolio_id,
+            user_message=user_message,
+            event_queue=event_queue,
+            conversation_history=conversation_history,
+        )
+        agent_result.append(output or "")
+        event_queue.put({"type": "done", "conversation_id": conversation_id})
+        event_queue.put(None)  # sentinel
+
+    thread = threading.Thread(target=run_agent_thread, daemon=True)
+    thread.start()
+
+    # 5. SSE generator
+    async def sse_generator():
+        token_parts: list = []
+        try:
+            loop = asyncio.get_event_loop()
+            while True:
+                try:
+                    evt = await loop.run_in_executor(
+                        None, lambda: event_queue.get(timeout=120)
+                    )
+                except stdlib_queue.Empty:
+                    yield 'data: {"type": "error", "content": "Request timed out"}\n\n'
+                    break
+
+                if evt is None:  # sentinel
+                    break
+
+                if evt.get("type") == "token":
+                    token_parts.append(evt["content"])
+
+                yield f"data: {json.dumps(evt)}\n\n"
+
+                if evt.get("type") in ("done", "error"):
+                    break
+        finally:
+            # Persist full AI response to DB
+            full_response = "".join(token_parts) or (agent_result[0] if agent_result else "")
+            if full_response:
+                save_session = SessionLocal()
+                try:
+                    ai_msg = ChatMessage(
+                        conversation_id=conversation_id,
+                        role="ai",
+                        content=full_response
+                    )
+                    save_session.add(ai_msg)
+                    save_session.commit()
+                except Exception as save_err:
+                    logger.error(f"Failed to save streaming AI response: {save_err}")
+                finally:
+                    save_session.close()
+
+    return StreamingResponse(
+        sse_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        }
+    )
+
+
+@app.post("/api/portfolios/{portfolio_id}/embed-reviews")
+def embed_reviews(
+    portfolio_id: int,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Trigger background embedding of all un-embedded reviews in a portfolio.
+    Required once to enable semantic search in the AI chat agent.
+    Safe to call multiple times — already-embedded reviews are skipped.
+    """
+    check_portfolio_access(db, current_user.id, portfolio_id)
+
+    openai_key = os.getenv("OPENAI_API_KEY")
+    if not openai_key:
+        raise HTTPException(status_code=500, detail="OPENAI_API_KEY is not configured")
+
+    # Ensure pgvector extension + index exist (idempotent)
+    from database import engine as admin_engine
+    setup_ok = ensure_pgvector_setup(admin_engine)
+    if not setup_ok:
+        raise HTTPException(
+            status_code=500,
+            detail="pgvector setup failed — check server logs. Ensure the pgvector extension is available on your PostgreSQL instance."
+        )
+
+    def run_embedding():
+        embed_db = SessionLocal()
+        try:
+            result = embed_portfolio_reviews(portfolio_id, embed_db, openai_key)
+            logger.info(f"✅ Embedding job done for portfolio {portfolio_id}: {result}")
+        except Exception as e:
+            logger.error(f"❌ Embedding job failed for portfolio {portfolio_id}: {e}")
+        finally:
+            embed_db.close()
+
+    background_tasks.add_task(run_embedding)
+    return {"message": "Embedding job started in background. Reviews will be available for semantic search shortly."}
 
 
 # ==========================================
@@ -1622,22 +1822,34 @@ async def get_dashboard_stats(
 ):
     """Returns aggregated DashboardData for a portfolio."""
     check_portfolio_access(db, current_user.id, portfolio_id)
-    query = db.query(Review).filter(Review.portfolio_id == portfolio_id)
 
-    if brand and brand != "all":
-        brands_list = [b.strip() for b in brand.split(",")]
-        query = query.filter(Review.brand.in_(brands_list))
-    if job_id:
-        query = query.filter(Review.job_id == job_id)
-    if platform and platform != "all":
-        query = query.filter(Review.platform.ilike(f"%{platform}%"))
-    if start_date:
-        query = query.filter(Review.date >= start_date)
-    if end_date:
-        query = query.filter(Review.date <= end_date)
-        
-    reviews = query.all()
-    if not reviews:
+    # Helper: apply the same filters to any query
+    def apply_filters(q):
+        q = q.filter(Review.portfolio_id == portfolio_id)
+        if brand and brand != "all":
+            brands_filter = [b.strip() for b in brand.split(",")]
+            q = q.filter(Review.brand.in_(brands_filter))
+        if job_id:
+            q = q.filter(Review.job_id == job_id)
+        if platform and platform != "all":
+            q = q.filter(Review.platform.ilike(f"%{platform}%"))
+        if start_date:
+            q = q.filter(Review.date >= start_date)
+        if end_date:
+            q = q.filter(Review.date <= end_date)
+        return q
+
+    # ── 1. Scalar KPIs (single aggregate query) ──────────────────────────────
+    kpi = apply_filters(db.query(
+        func.count().label("total"),
+        func.avg(Review.rating).label("avg_rating"),
+        func.sum(case((Review.sentiment == 'positive', 1), else_=0)).label("positive"),
+        func.sum(case((Review.sentiment == 'negative', 1), else_=0)).label("negative"),
+        func.sum(case((Review.sentiment == 'neutral',  1), else_=0)).label("neutral"),
+    )).one()
+
+    total_reviews = kpi.total or 0
+    if total_reviews == 0:
         return {
             "totalReviews": 0,
             "avgRating": 0,
@@ -1653,203 +1865,204 @@ async def get_dashboard_stats(
             "topWeaknesses": [],
             "platformStats": []
         }
-        
-    total_reviews = len(reviews)
-    positive = sum(1 for r in reviews if r.sentiment and r.sentiment.lower() == 'positive')
-    negative = sum(1 for r in reviews if r.sentiment and r.sentiment.lower() == 'negative')
-    neutral = sum(1 for r in reviews if r.sentiment and r.sentiment.lower() == 'neutral')
-    
-    pos_pct = (positive / total_reviews) * 100
-    neg_pct = (negative / total_reviews) * 100
-    neu_pct = (neutral / total_reviews) * 100
+
+    avg_rating     = float(kpi.avg_rating or 0)
+    positive_count = kpi.positive or 0
+    negative_count = kpi.negative or 0
+    neutral_count  = kpi.neutral  or 0
+    pos_pct       = (positive_count / total_reviews) * 100
+    neg_pct       = (negative_count / total_reviews) * 100
+    neu_pct       = (neutral_count  / total_reviews) * 100
     net_sentiment = pos_pct - neg_pct
-    
-    avg_rating = sum((r.rating or 0) for r in reviews) / total_reviews
-    
-    # Dimensions
-    dim_map = {}
-    brand_map = {}
-    platform_map = {}
-    week_map = {}
-    brand_trend_map = {}
-    
-    for r in reviews:
-        b_name = r.brand or "Unknown"
-        
-        # Brand stats
-        if b_name not in brand_map:
-            brand_map[b_name] = []
-        brand_map[b_name].append(r)
-        
-        # Platform stats
-        plat = r.platform or "Unknown"
-        if 'App Store' in plat: plat = 'App Store'
-        if 'Google Play' in plat: plat = 'Google Play'
-        if 'Google Maps' in plat: plat = 'Google Maps'
-        if 'Trustpilot' in plat: plat = 'Trustpilot'
-        platform_map[plat] = platform_map.get(plat, 0) + 1
-        
-        # Sentiment trend by week
-        if r.date:
-            try:
-                # r.date is now a datetime.date object
-                d = r.date
-                if hasattr(d, 'date'): # if it's a datetime object
-                    d = d.date()
-                
-                iso_year, iso_week, _ = d.isocalendar()
-                wk_key = f"W-{iso_week}"
-                
-                if wk_key not in week_map:
-                    week_map[wk_key] = {"positive": 0, "negative": 0, "neutral": 0, "year": iso_year, "week": iso_week}
-                sent = (r.sentiment or "").lower()
-                if sent == "positive": week_map[wk_key]["positive"] += 1
-                elif sent == "negative": week_map[wk_key]["negative"] += 1
-                else: week_map[wk_key]["neutral"] += 1
 
-                # Brand trend
-                if wk_key not in brand_trend_map:
-                    brand_trend_map[wk_key] = {"week": wk_key, "year": iso_year, "week_num": iso_week}
-                brand_trend_map[wk_key][b_name] = brand_trend_map[wk_key].get(b_name, 0) + 1
-            except Exception as e:
-                logger.error(f"Error processing trend date: {e}")
-                pass
+    # ── 2. Brand stats (SQL GROUP BY brand) ──────────────────────────────────
+    brand_agg = apply_filters(db.query(
+        Review.brand,
+        func.count().label("total"),
+        func.avg(Review.rating).label("avg_rating"),
+        func.sum(case((Review.sentiment == 'positive', 1), else_=0)).label("positive"),
+        func.sum(case((Review.sentiment == 'negative', 1), else_=0)).label("negative"),
+        func.sum(case((Review.sentiment == 'neutral',  1), else_=0)).label("neutral"),
+    )).group_by(Review.brand).all()
 
-        # Dimensions logic
-        topics = r.topics
-        if isinstance(topics, list):
-            for t in topics:
-                if t.get("mentioned") is False:
-                    continue
-                dim = t.get("dimension", "Unknown")
-                sent = (t.get("sentiment") or "Neutral").lower()
-                
-                if dim not in dim_map:
-                    dim_map[dim] = {"positive": 0, "negative": 0, "neutral": 0, "brands": {}}
-                
-                d_stats = dim_map[dim]
-                if b_name not in d_stats["brands"]:
-                    d_stats["brands"][b_name] = {"positive": 0, "negative": 0, "neutral": 0}
-                b_stats = d_stats["brands"][b_name]
-                
-                if sent == "positive":
-                    d_stats["positive"] += 1
-                    b_stats["positive"] += 1
-                elif sent == "negative":
-                    d_stats["negative"] += 1
-                    b_stats["negative"] += 1
-                else:
-                    d_stats["neutral"] += 1
-                    b_stats["neutral"] += 1
-
-    dimension_stats = []
-    for dim, stats in dim_map.items():
-        total = stats["positive"] + stats["negative"] + stats["neutral"]
-        d_pos_pct = (stats["positive"] / total * 100) if total > 0 else 0
-        d_neg_pct = (stats["negative"] / total * 100) if total > 0 else 0
-        d_neu_pct = (stats["neutral"] / total * 100) if total > 0 else 0
-        d_net = d_pos_pct - d_neg_pct
-        impact = (total / total_reviews) * d_net
-        
-        brand_stats_obj = {}
-        for b_name, b_stats in stats["brands"].items():
-            b_total = b_stats["positive"] + b_stats["negative"] + b_stats["neutral"]
-            b_pos_pct = (b_stats["positive"] / b_total * 100) if b_total > 0 else 0
-            b_neg_pct = (b_stats["negative"] / b_total * 100) if b_total > 0 else 0
-            b_neu_pct = (b_stats["neutral"] / b_total * 100) if b_total > 0 else 0
-            brand_stats_obj[b_name] = {
-                "positive": b_stats["positive"],
-                "negative": b_stats["negative"],
-                "neutral": b_stats["neutral"],
-                "positivePercent": b_pos_pct,
-                "negativePercent": b_neg_pct,
-                "neutralPercent": b_neu_pct,
-                "netSentiment": b_pos_pct - b_neg_pct
-            }
-            
-        dimension_stats.append({
-            "dimension": dim,
-            "total": total,
-            "positive": stats["positive"],
-            "negative": stats["negative"],
-            "neutral": stats["neutral"],
-            "positivePercent": d_pos_pct,
-            "negativePercent": d_neg_pct,
-            "neutralPercent": d_neu_pct,
-            "netSentiment": d_net,
-            "impact": impact,
-            "brandStats": brand_stats_obj
-        })
-        
-    dimension_stats.sort(key=lambda x: x["impact"], reverse=True)
-    top_strengths = [d for d in dimension_stats if d["impact"] > 0][:3]
-    top_weaknesses = sorted([d for d in dimension_stats if d["impact"] < 0], key=lambda x: x["impact"])[:3]
-    
     brand_stats_list = []
-    for b_name, b_revs in brand_map.items():
-        b_total = len(b_revs)
-        b_avg = sum((r.rating or 0) for r in b_revs) / b_total
-        b_pos = sum(1 for r in b_revs if r.sentiment and r.sentiment.lower() == 'positive')
-        b_neg = sum(1 for r in b_revs if r.sentiment and r.sentiment.lower() == 'negative')
-        b_neu = sum(1 for r in b_revs if r.sentiment and r.sentiment.lower() == 'neutral')
-        b_pos_pct = (b_pos / b_total) * 100
-        b_neg_pct = (b_neg / b_total) * 100
+    all_brands = []
+    for row in brand_agg:
+        b_name = row.brand or "Unknown"
+        all_brands.append(b_name)
+        b_total   = row.total or 0
+        b_pos_pct = (row.positive / b_total * 100) if b_total > 0 else 0
+        b_neg_pct = (row.negative / b_total * 100) if b_total > 0 else 0
+        b_neu_pct = (row.neutral  / b_total * 100) if b_total > 0 else 0
         brand_stats_list.append({
-            "brand": b_name,
-            "reviews": b_total,
-            "avgRating": b_avg,
+            "brand":           b_name,
+            "reviews":         b_total,
+            "avgRating":       float(row.avg_rating or 0),
             "positivePercent": b_pos_pct,
             "negativePercent": b_neg_pct,
-            "neutralPercent": (b_neu / b_total) * 100,
-            "netSentiment": b_pos_pct - b_neg_pct
+            "neutralPercent":  b_neu_pct,
+            "netSentiment":    b_pos_pct - b_neg_pct,
         })
     brand_stats_list.sort(key=lambda x: x["reviews"], reverse=True)
-    
+
+    # ── 3. Platform stats (SQL GROUP BY normalized platform) ─────────────────
+    plat_expr = case(
+        (Review.platform.ilike('%App Store%'),   'App Store'),
+        (Review.platform.ilike('%Google Play%'), 'Google Play'),
+        (Review.platform.ilike('%Google Maps%'), 'Google Maps'),
+        (Review.platform.ilike('%Trustpilot%'),  'Trustpilot'),
+        else_=Review.platform,
+    )
+    plat_agg = apply_filters(db.query(
+        plat_expr.label("platform_name"),
+        func.count().label("count"),
+    )).group_by(plat_expr).all()
     platform_stats = [
-        {"platform": p, "count": c, "percentage": (c / total_reviews) * 100}
-        for p, c in platform_map.items()
+        {"platform": row.platform_name, "count": row.count,
+         "percentage": (row.count / total_reviews) * 100}
+        for row in plat_agg
     ]
     platform_stats.sort(key=lambda x: x["count"], reverse=True)
-    
-    # Sort trends
-    sorted_brand_weeks = sorted(brand_trend_map.values(), key=lambda x: (x["year"], x["week_num"]))
+
+    # ── 4. Sentiment trend by ISO week (SQL GROUP BY year, week) ─────────────
+    iso_year_col = extract('isoyear', Review.date)
+    iso_week_col = extract('week',    Review.date)
+    trend_agg = apply_filters(db.query(
+        iso_year_col.label("iso_year"),
+        iso_week_col.label("iso_week"),
+        func.sum(case((Review.sentiment == 'positive', 1), else_=0)).label("positive"),
+        func.sum(case((Review.sentiment == 'negative', 1), else_=0)).label("negative"),
+        func.sum(case((Review.sentiment == 'neutral',  1), else_=0)).label("neutral"),
+    )).filter(Review.date.isnot(None)) \
+      .group_by(iso_year_col, iso_week_col) \
+      .order_by(iso_year_col, iso_week_col).all()
+
+    sentiment_trend = [
+        {
+            "week":     f"W-{int(row.iso_week)}",
+            "positive": row.positive or 0,
+            "negative": row.negative or 0,
+            "neutral":  row.neutral  or 0,
+        }
+        for row in trend_agg
+    ][-12:]
+
+    # ── 5. Brand trend by ISO week (SQL GROUP BY year, week, brand) ───────────
+    brand_trend_agg = apply_filters(db.query(
+        iso_year_col.label("iso_year"),
+        iso_week_col.label("iso_week"),
+        Review.brand,
+        func.count().label("count"),
+    )).filter(Review.date.isnot(None)) \
+      .group_by(iso_year_col, iso_week_col, Review.brand) \
+      .order_by(iso_year_col, iso_week_col).all()
+
+    brand_trend_map: dict = {}
+    for row in brand_trend_agg:
+        wk_key   = f"W-{int(row.iso_week)}"
+        sort_key = (int(row.iso_year), int(row.iso_week))
+        if wk_key not in brand_trend_map:
+            brand_trend_map[wk_key] = {"week": wk_key, "_sort_key": sort_key}
+        b_name = row.brand or "Unknown"
+        brand_trend_map[wk_key][b_name] = brand_trend_map[wk_key].get(b_name, 0) + row.count
+
     brand_trend_result = []
-    all_brands = list(brand_map.keys())
-    for wk in sorted_brand_weeks:
+    for wk in sorted(brand_trend_map.values(), key=lambda x: x["_sort_key"]):
         entry = {"week": wk["week"]}
         for b in all_brands:
             entry[b] = wk.get(b, 0)
         brand_trend_result.append(entry)
 
-    # Sentiment trend
-    trend_data = []
-    for wk, wk_stats in week_map.items():
-        trend_data.append({
-            "week": wk,
-            "positive": wk_stats["positive"],
-            "negative": wk_stats["negative"],
-            "neutral": wk_stats["neutral"],
-            "_sort_key": (wk_stats["year"], wk_stats["week"])
+    # ── 6. Dimension/topic stats — Python loop, but minimal column fetch ──────
+    # topics is a JSON column; full aggregation in SQL isn't practical.
+    # Fetch only (brand, sentiment, topics) — avoids pulling text + embedding.
+    topic_rows = apply_filters(db.query(
+        Review.brand, Review.sentiment, Review.topics
+    )).all()
+
+    dim_map: dict = {}
+    for r in topic_rows:
+        b_name = r.brand or "Unknown"
+        topics = r.topics
+        if not isinstance(topics, list):
+            continue
+        for t in topics:
+            if t.get("mentioned") is False:
+                continue
+            dim  = t.get("dimension", "Unknown")
+            sent = (t.get("sentiment") or "Neutral").lower()
+            if dim not in dim_map:
+                dim_map[dim] = {"positive": 0, "negative": 0, "neutral": 0, "brands": {}}
+            d_stats = dim_map[dim]
+            if b_name not in d_stats["brands"]:
+                d_stats["brands"][b_name] = {"positive": 0, "negative": 0, "neutral": 0}
+            b_stats = d_stats["brands"][b_name]
+            if sent == "positive":
+                d_stats["positive"] += 1; b_stats["positive"] += 1
+            elif sent == "negative":
+                d_stats["negative"] += 1; b_stats["negative"] += 1
+            else:
+                d_stats["neutral"] += 1;  b_stats["neutral"]  += 1
+
+    dimension_stats = []
+    for dim, stats in dim_map.items():
+        total     = stats["positive"] + stats["negative"] + stats["neutral"]
+        d_pos_pct = (stats["positive"] / total * 100) if total > 0 else 0
+        d_neg_pct = (stats["negative"] / total * 100) if total > 0 else 0
+        d_neu_pct = (stats["neutral"]  / total * 100) if total > 0 else 0
+        d_net     = d_pos_pct - d_neg_pct
+        impact    = (total / total_reviews) * d_net
+
+        brand_stats_obj = {}
+        for b_name, b_stats in stats["brands"].items():
+            b_total   = b_stats["positive"] + b_stats["negative"] + b_stats["neutral"]
+            b_pos_pct = (b_stats["positive"] / b_total * 100) if b_total > 0 else 0
+            b_neg_pct = (b_stats["negative"] / b_total * 100) if b_total > 0 else 0
+            b_neu_pct = (b_stats["neutral"]  / b_total * 100) if b_total > 0 else 0
+            brand_stats_obj[b_name] = {
+                "positive":        b_stats["positive"],
+                "negative":        b_stats["negative"],
+                "neutral":         b_stats["neutral"],
+                "positivePercent": b_pos_pct,
+                "negativePercent": b_neg_pct,
+                "neutralPercent":  b_neu_pct,
+                "netSentiment":    b_pos_pct - b_neg_pct,
+            }
+
+        dimension_stats.append({
+            "dimension":       dim,
+            "total":           total,
+            "positive":        stats["positive"],
+            "negative":        stats["negative"],
+            "neutral":         stats["neutral"],
+            "positivePercent": d_pos_pct,
+            "negativePercent": d_neg_pct,
+            "neutralPercent":  d_neu_pct,
+            "netSentiment":    d_net,
+            "impact":          impact,
+            "brandStats":      brand_stats_obj,
         })
-    trend_data.sort(key=lambda x: x["_sort_key"])
-    for t in trend_data:
-        del t["_sort_key"]
-    sentiment_trend = trend_data[-12:]
+
+    dimension_stats.sort(key=lambda x: x["impact"], reverse=True)
+    top_strengths  = [d for d in dimension_stats if d["impact"] > 0][:3]
+    top_weaknesses = sorted(
+        [d for d in dimension_stats if d["impact"] < 0], key=lambda x: x["impact"]
+    )[:3]
 
     return {
-        "totalReviews": total_reviews,
-        "avgRating": avg_rating,
+        "totalReviews":    total_reviews,
+        "avgRating":       avg_rating,
         "positivePercent": pos_pct,
         "negativePercent": neg_pct,
-        "neutralPercent": neu_pct,
-        "netSentiment": net_sentiment,
-        "sentimentTrend": sentiment_trend,
-        "brandTrend": brand_trend_result[-12:],
-        "brandStats": brand_stats_list,
-        "dimensionStats": dimension_stats,
-        "topStrengths": top_strengths,
-        "topWeaknesses": top_weaknesses,
-        "platformStats": platform_stats
+        "neutralPercent":  neu_pct,
+        "netSentiment":    net_sentiment,
+        "sentimentTrend":  sentiment_trend,
+        "brandTrend":      brand_trend_result[-12:],
+        "brandStats":      brand_stats_list,
+        "dimensionStats":  dimension_stats,
+        "topStrengths":    top_strengths,
+        "topWeaknesses":   top_weaknesses,
+        "platformStats":   platform_stats,
     }
 
 

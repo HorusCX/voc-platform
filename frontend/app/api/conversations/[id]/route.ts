@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
 
-export async function GET(
+export async function DELETE(
     request: NextRequest,
     { params }: { params: Promise<{ id: string }> }
 ) {
@@ -11,8 +11,8 @@ export async function GET(
         const { id } = await params;
         const authHeader = request.headers.get("Authorization");
 
-        const response = await fetch(`${BACKEND_URL}/api/conversations/${id}/messages`, {
-            method: "GET",
+        const response = await fetch(`${BACKEND_URL}/api/conversations/${id}`, {
+            method: "DELETE",
             headers: {
                 "Content-Type": "application/json",
                 ...(authHeader && { "Authorization": authHeader }),
@@ -24,4 +24,3 @@ export async function GET(
         return NextResponse.json({ detail: "Failed to connect to backend", error: String(error) }, { status: 500 });
     }
 }
-

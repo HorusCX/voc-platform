@@ -43,25 +43,31 @@ export default function ReviewsPage() {
         setCurrentPage(1);
     }, [searchQuery, selectedBrand, selectedPlatform, startDate, endDate, sortField, sortOrder]);
 
+    // Fire stats + first page of reviews in parallel on portfolio change (Fix 6)
     useEffect(() => {
-        async function fetchBrands() {
-            if (!currentPortfolio?.id) return;
-            try {
-                // Fetch stats which is much lighter, just to extract available brands and platforms
-                const stats = await fetchDashboardStatsFromAPI(undefined, undefined, currentPortfolio.id);
-                if (stats) {
-                    if (stats.brandStats) {
-                        setAvailableBrands(stats.brandStats.map(b => b.brand).sort());
-                    }
-                    if (stats.platformStats) {
-                        setAvailablePlatforms(stats.platformStats.map(p => p.platform).sort());
-                    }
-                }
-            } catch (err) {
-                console.error("Failed to load brands:", err);
-            }
-        }
-        fetchBrands();
+        if (!currentPortfolio?.id) return;
+        setIsLoading(true);
+        Promise.all([
+            fetchDashboardStatsFromAPI(undefined, undefined, currentPortfolio.id),
+            fetchPaginatedUserReviewsFromAPI({
+                portfolio_id: currentPortfolio.id,
+                page: 1,
+                page_size: itemsPerPage,
+                sort_field: sortField,
+                sort_order: sortOrder,
+            }),
+        ]).then(([stats, data]) => {
+            if (stats?.brandStats)    setAvailableBrands(stats.brandStats.map(b => b.brand).sort());
+            if (stats?.platformStats) setAvailablePlatforms(stats.platformStats.map(p => p.platform).sort());
+            setReviews(data.items);
+            setTotalPages(data.total_pages);
+            setTotalReviews(data.total);
+            setCurrentPage(1);
+        }).catch(err => {
+            console.error("Failed to load reviews page:", err);
+            setError("Failed to load reviews. Please try again later.");
+        }).finally(() => setIsLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [currentPortfolio?.id]);
 
     useEffect(() => {

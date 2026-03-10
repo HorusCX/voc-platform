@@ -78,7 +78,7 @@ export default function Home() {
         </p>
       </div>
 
-      <div className="w-full max-w-5xl px-4 flex-1">
+      <div className="w-full max-w-6xl px-6 flex-1">
         {view === "companies" && (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
             <SavedCompaniesList

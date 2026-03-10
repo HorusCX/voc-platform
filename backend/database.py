@@ -16,6 +16,14 @@ from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from dotenv import load_dotenv
 from pathlib import Path
 
+# pgvector support (optional — gracefully degrades if not installed)
+try:
+    from pgvector.sqlalchemy import Vector
+    PGVECTOR_AVAILABLE = True
+except ImportError:
+    PGVECTOR_AVAILABLE = False
+    Vector = None
+
 # Load environment variables
 env_path = Path(__file__).resolve().parent.parent / ".env"
 load_dotenv(dotenv_path=env_path)
@@ -231,6 +239,9 @@ class Review(Base):
     confidence = Column(Float, nullable=True)            # 0.0 - 1.0
     topics = Column(JSON, nullable=True)                 # [{dimension, sentiment, mentioned}]
 
+    # --- Semantic Embedding (populated by embed_reviews job, requires pgvector) ---
+    embedding = Column(Vector(1536), nullable=True) if PGVECTOR_AVAILABLE else Column(Text, nullable=True)
+
     created_at = Column(DateTime, default=datetime.utcnow)
     analyzed_at = Column(DateTime, nullable=True)
     portfolio_id = Column(Integer, ForeignKey("portfolios.id", ondelete="CASCADE"), nullable=False)
@@ -242,6 +253,9 @@ class Review(Base):
         Index("idx_reviews_job_id", "job_id"),
         Index("idx_reviews_brand", "brand"),
         Index("idx_reviews_portfolio_id", "portfolio_id"),
+        # Composite indexes for dashboard-stats and fetch_reviews hot paths
+        Index("idx_reviews_portfolio_brand_platform", "portfolio_id", "brand", "platform"),
+        Index("idx_reviews_portfolio_brand_location", "portfolio_id", "brand", "source_location"),
     )
 
     def to_dict(self):

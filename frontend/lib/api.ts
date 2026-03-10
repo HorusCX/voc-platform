@@ -25,6 +25,16 @@ api.interceptors.request.use(
     }
 );
 
+// ── Streaming Chat Types ──────────────────────────────────────────────────────
+
+export type ChatStreamEvent = {
+    type: "thinking" | "tool_call" | "tool_result" | "token" | "done" | "error";
+    content?: string;
+    tool?: string;
+    input?: string;
+    conversation_id?: number;
+};
+
 // Define Types
 export interface ReviewTopic {
     dimension?: string;
@@ -223,7 +233,12 @@ export const VoCService = {
         if (platform) params.platform = platform;
         if (startDate) params.start_date = startDate;
         if (endDate) params.end_date = endDate;
+        if (typeof performance !== 'undefined') performance.mark('dashboard-stats-start');
         const response = await api.get('/api/user/dashboard-stats', { params });
+        if (typeof performance !== 'undefined') {
+            performance.mark('dashboard-stats-end');
+            performance.measure('dashboard-stats', 'dashboard-stats-start', 'dashboard-stats-end');
+        }
         return response.data;
     },
 
@@ -289,6 +304,62 @@ export const VoCService = {
         if (conversationId) payload.conversation_id = conversationId;
         const response = await api.post<{ response: string; conversation_id: number }>(`/api/portfolios/${portfolioId}/chat`, payload);
         return response.data;
+    },
+
+    streamChatMessage: async (
+        portfolioId: number,
+        message: string,
+        conversationId: number | undefined,
+        onEvent: (event: ChatStreamEvent) => void,
+        onDone: (conversationId: number) => void,
+        onError: (error: string) => void,
+    ): Promise<void> => {
+        const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+        const payload: Record<string, unknown> = { message };
+        if (conversationId) payload.conversation_id = conversationId;
+
+        const response = await fetch(`/api/portfolios/${portfolioId}/chat/stream`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                ...(token && { Authorization: `Bearer ${token}` }),
+            },
+            body: JSON.stringify(payload),
+        });
+
+        if (!response.ok || !response.body) {
+            onError(`Request failed with status ${response.status}`);
+            return;
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop() ?? "";
+
+            for (const line of lines) {
+                if (!line.startsWith("data: ")) continue;
+                try {
+                    const evt: ChatStreamEvent = JSON.parse(line.slice(6));
+                    if (evt.type === "done") {
+                        onDone(evt.conversation_id!);
+                    } else if (evt.type === "error") {
+                        onError(evt.content ?? "Unknown error");
+                    } else {
+                        onEvent(evt);
+                    }
+                } catch {
+                    // ignore malformed lines
+                }
+            }
+        }
     },
 
     acceptInvitation: async (data: Record<string, string>) => {

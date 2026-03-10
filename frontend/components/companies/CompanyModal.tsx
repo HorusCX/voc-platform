@@ -94,120 +94,130 @@ export function CompanyModal({ isOpen, onClose, onSave, initialData }: CompanyMo
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-            <div className="bg-card w-full max-w-2xl rounded-xl shadow-xl border border-border flex flex-col max-h-[90vh]">
-                <div className="flex justify-between items-center p-6 border-b border-border">
-                    <h2 className="text-xl font-semibold">{initialData ? "Edit Company" : "Add Company"}</h2>
-                    <button onClick={onClose} className="p-2 text-muted-foreground hover:bg-muted rounded-full transition-colors">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/5 p-4 backdrop-blur-[2px] animate-in fade-in duration-300">
+            <div className="bg-white/80 backdrop-blur-2xl w-full max-w-2xl rounded-[2rem] shadow-glass border border-glass-border flex flex-col max-h-[90vh] overflow-hidden">
+                <div className="flex justify-between items-center px-8 py-6 border-b border-black/5">
+                    <div>
+                        <h2 className="text-2xl font-bold tracking-tight text-foreground">
+                            {initialData ? "Refine Company" : "Connect Company"}
+                        </h2>
+                        <p className="text-sm text-muted-foreground font-medium">
+                            {initialData ? "Update your company metadata and integrations." : "Add a new company to start syncing reviews."}
+                        </p>
+                    </div>
+                    <button
+                        onClick={onClose}
+                        className="p-2 text-muted-foreground hover:bg-black/5 rounded-full transition-colors bg-black/5 sm:bg-transparent"
+                    >
                         <X className="w-5 h-5" />
                     </button>
                 </div>
 
-                <div className="p-6 overflow-y-auto flex-1">
-                    <form id="company-form" onSubmit={handleSubmit} className="space-y-4">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div className="space-y-1">
-                                <label className="text-sm font-medium">Company Name *</label>
+                <div className="px-8 py-6 overflow-y-auto flex-1 custom-scrollbar">
+                    <form id="company-form" onSubmit={handleSubmit} className="space-y-6">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div className="space-y-2">
+                                <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground/80 ml-1">Company Name *</label>
                                 <input
                                     type="text"
                                     name="company_name"
                                     value={formData.company_name || ""}
                                     onChange={handleChange}
-                                    className="w-full rounded-md border border-input px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                                    className="w-full rounded-xl border border-black/5 bg-black/[0.02] px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all placeholder:text-muted-foreground/40"
                                     placeholder="e.g. Acme Corp"
                                     required
                                 />
                             </div>
-                            <div className="space-y-1">
-                                <label className="text-sm font-medium">Website</label>
+                            <div className="space-y-2">
+                                <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground/80 ml-1">Official Website</label>
                                 <input
                                     type="url"
                                     name="website"
                                     value={formData.website || ""}
                                     onChange={handleChange}
-                                    className="w-full rounded-md border border-input px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
-                                    placeholder="https://"
+                                    className="w-full rounded-xl border border-black/5 bg-black/[0.02] px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all placeholder:text-muted-foreground/40"
+                                    placeholder="https://acme.com"
                                 />
                             </div>
                         </div>
 
-                        <div className="space-y-1">
-                            <label className="text-sm font-medium">Description</label>
+                        <div className="space-y-2">
+                            <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground/80 ml-1">Description</label>
                             <textarea
                                 name="description"
                                 value={formData.description || ""}
                                 onChange={handleChange}
                                 rows={3}
-                                className="w-full rounded-md border border-input px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
-                                placeholder="Brief description of the company..."
+                                className="w-full rounded-xl border border-black/5 bg-black/[0.02] px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all resize-none placeholder:text-muted-foreground/40"
+                                placeholder="What does this company do?"
                             />
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div className="space-y-1">
-                                <label className="text-sm font-medium">App Store ID (iOS)</label>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div className="space-y-2">
+                                <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground/80 ml-1">App Store ID (iOS)</label>
                                 <input
                                     type="text"
                                     name="apple_id"
                                     value={formData.apple_id || ""}
                                     onChange={handleChange}
-                                    className="w-full rounded-md border border-input px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                                    className="w-full rounded-xl border border-black/5 bg-black/[0.02] px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all placeholder:text-muted-foreground/40"
                                     placeholder="e.g. 123456789"
                                 />
                             </div>
-                            <div className="space-y-1">
-                                <label className="text-sm font-medium">Play Store ID (Android)</label>
+                            <div className="space-y-2">
+                                <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground/80 ml-1">Play Store ID (Android)</label>
                                 <input
                                     type="text"
                                     name="android_id"
                                     value={formData.android_id || ""}
                                     onChange={handleChange}
-                                    className="w-full rounded-md border border-input px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                                    className="w-full rounded-xl border border-black/5 bg-black/[0.02] px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all placeholder:text-muted-foreground/40"
                                     placeholder="e.g. com.example.app"
                                 />
                             </div>
                         </div>
 
-                        <div className="space-y-1">
-                            <label className="text-sm font-medium">Trustpilot Link</label>
+                        <div className="space-y-2">
+                            <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground/80 ml-1">Trustpilot Link</label>
                             <input
                                 type="url"
                                 name="trustpilot_link"
                                 value={formData.trustpilot_link || ""}
                                 onChange={handleChange}
-                                className="w-full rounded-md border border-input px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                                className="w-full rounded-xl border border-black/5 bg-black/[0.02] px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all placeholder:text-muted-foreground/40"
                                 placeholder="https://www.trustpilot.com/review/..."
                             />
                         </div>
 
-                        <div className="space-y-1">
-                            <label className="text-sm font-medium flex items-center justify-between">
+                        <div className="space-y-2">
+                            <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground/80 ml-1 flex items-center justify-between">
                                 Google Maps Links
-                                <span className="text-xs text-muted-foreground font-normal">Comma-separated</span>
+                                <span className="text-[10px] font-normal normal-case opacity-40">Comma-separated URLs</span>
                             </label>
                             <textarea
                                 value={mapLinksInput}
                                 onChange={(e) => setMapLinksInput(e.target.value)}
-                                rows={3}
-                                className="w-full rounded-md border border-input px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
-                                placeholder="https://maps.google.com/..., https://..."
+                                rows={2}
+                                className="w-full rounded-xl border border-black/5 bg-black/[0.02] px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all resize-none placeholder:text-muted-foreground/40"
+                                placeholder="https://maps.google.com/..."
                             />
                         </div>
 
                         {error && (
-                            <div className="p-3 bg-destructive/10 border border-destructive/20 text-destructive text-sm rounded-md">
+                            <div className="p-4 bg-rose-50 border border-rose-100 text-rose-600 text-xs font-bold rounded-xl animate-in shake duration-300">
                                 {error}
                             </div>
                         )}
                     </form>
                 </div>
 
-                <div className="p-6 border-t border-border flex justify-end gap-3 bg-muted/20">
+                <div className="px-8 py-6 border-t border-black/5 flex justify-end gap-3 bg-black/[0.02]">
                     <button
                         type="button"
                         onClick={onClose}
                         disabled={loading}
-                        className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition-colors"
+                        className="px-6 py-2.5 text-sm font-bold text-muted-foreground hover:text-foreground transition-colors"
                     >
                         Cancel
                     </button>
@@ -215,10 +225,10 @@ export function CompanyModal({ isOpen, onClose, onSave, initialData }: CompanyMo
                         type="submit"
                         form="company-form"
                         disabled={loading}
-                        className="px-4 py-2 text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 rounded-md transition-colors flex items-center gap-2"
+                        className="px-8 py-2.5 text-sm font-bold bg-primary text-primary-foreground hover:bg-primary/90 rounded-full shadow-md transition-all hover:scale-[1.02] active:scale-95 flex items-center gap-2"
                     >
                         {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-                        {initialData ? "Save Changes" : "Create Company"}
+                        {initialData ? "Save Changes" : "Connect"}
                     </button>
                 </div>
             </div>
