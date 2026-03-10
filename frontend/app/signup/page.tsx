@@ -54,18 +54,17 @@ export default function SignupPage() {
             <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(60,131,246,0.06)_0%,_transparent_60%)] pointer-events-none" />
             <div className="absolute inset-0 bg-grid-pattern pointer-events-none opacity-60" />
 
-            <div className="max-w-md w-full space-y-6 relative z-10">
+            <div className="max-w-md w-full space-y-2 relative z-10">
                 {/* Brand identity */}
                 <div className="flex flex-col items-center">
                     <Image
-                        src="/logo.png"
+                        src="/logo-transparent.png"
                         alt="HorusCX"
-                        width={220}
-                        height={72}
-                        className="h-18 w-auto object-contain mb-2"
+                        width={440}
+                        height={144}
+                        className="h-36 w-auto object-contain mb-0"
                         priority
                     />
-                    <p className="text-sm text-muted-foreground">Voice of Customer Intelligence</p>
                 </div>
 
                 {/* Card */}

@@ -97,9 +97,9 @@ export function CompanyModal({ isOpen, onClose, onSave, initialData }: CompanyMo
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/5 p-4 backdrop-blur-[2px] animate-in fade-in duration-300">
-            <div className="bg-white/80 backdrop-blur-2xl w-full max-w-2xl rounded-[2rem] shadow-glass border border-glass-border flex flex-col max-h-[90vh] overflow-hidden">
-                <div className="flex justify-between items-center px-8 py-6 border-b border-black/5">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm animate-in fade-in duration-300">
+            <div className="bg-white w-full max-w-2xl rounded-2xl shadow-xl border border-zinc-200 flex flex-col max-h-[90vh] overflow-hidden">
+                <div className="flex justify-between items-center px-8 py-6 border-b border-zinc-200">
                     <div>
                         <h2 className="text-2xl font-bold tracking-tight text-foreground">
                             {initialData ? "Refine Company" : "Connect Company"}
@@ -110,7 +110,7 @@ export function CompanyModal({ isOpen, onClose, onSave, initialData }: CompanyMo
                     </div>
                     <button
                         onClick={onClose}
-                        className="p-2 text-muted-foreground hover:bg-black/5 rounded-full transition-colors bg-black/5 sm:bg-transparent"
+                        className="p-2 text-zinc-500 hover:bg-zinc-100 rounded-full transition-colors"
                     >
                         <X className="w-5 h-5" />
                     </button>
@@ -120,25 +120,25 @@ export function CompanyModal({ isOpen, onClose, onSave, initialData }: CompanyMo
                     <form id="company-form" onSubmit={handleSubmit} className="space-y-6">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div className="space-y-2">
-                                <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground/80 ml-1">Company Name *</label>
+                                <label className="text-xs font-bold uppercase tracking-widest text-zinc-500 ml-1">Company Name *</label>
                                 <input
                                     type="text"
                                     name="company_name"
                                     value={formData.company_name || ""}
                                     onChange={handleChange}
-                                    className="w-full rounded-xl border border-black/5 bg-black/[0.02] px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all placeholder:text-muted-foreground/40"
+                                    className="w-full rounded-xl border border-zinc-300 bg-zinc-50 px-4 py-3 text-sm text-zinc-900 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all placeholder:text-zinc-400"
                                     placeholder="e.g. Acme Corp"
                                     required
                                 />
                             </div>
                             <div className="space-y-2">
-                                <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground/80 ml-1">Official Website</label>
+                                <label className="text-xs font-bold uppercase tracking-widest text-zinc-500 ml-1">Official Website</label>
                                 <input
                                     type="url"
                                     name="website"
                                     value={formData.website || ""}
                                     onChange={handleChange}
-                                    className="w-full rounded-xl border border-black/5 bg-black/[0.02] px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all placeholder:text-muted-foreground/40"
+                                    className="w-full rounded-xl border border-zinc-300 bg-zinc-50 px-4 py-3 text-sm text-zinc-900 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all placeholder:text-zinc-400"
                                     placeholder="https://acme.com"
                                 />
                             </div>
@@ -146,10 +146,10 @@ export function CompanyModal({ isOpen, onClose, onSave, initialData }: CompanyMo
 
                         {/* Logo Section */}
                         <div className="space-y-3">
-                            <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground/80 ml-1">Company Logo</label>
+                            <label className="text-xs font-bold uppercase tracking-widest text-zinc-500 ml-1">Company Logo</label>
                             <div className="flex items-center gap-4">
                                 {/* Logo Preview */}
-                                <div className="shrink-0 w-16 h-16 rounded-xl border border-black/10 bg-black/[0.02] flex items-center justify-center overflow-hidden">
+                                <div className="shrink-0 w-16 h-16 rounded-xl border border-zinc-300 bg-zinc-50 flex items-center justify-center overflow-hidden">
                                     {formData.logo_url && !logoPreviewError ? (
                                         // eslint-disable-next-line @next/next/no-img-element
                                         <img
@@ -159,7 +159,7 @@ export function CompanyModal({ isOpen, onClose, onSave, initialData }: CompanyMo
                                             onError={() => setLogoPreviewError(true)}
                                         />
                                     ) : (
-                                        <ImageIcon className="w-6 h-6 text-muted-foreground/30" />
+                                        <ImageIcon className="w-6 h-6 text-zinc-400" />
                                     )}
                                 </div>
                                 <div className="flex-1 space-y-2">
@@ -168,10 +168,10 @@ export function CompanyModal({ isOpen, onClose, onSave, initialData }: CompanyMo
                                         name="logo_url"
                                         value={formData.logo_url || ""}
                                         onChange={handleChange}
-                                        className="w-full rounded-xl border border-black/5 bg-black/[0.02] px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all placeholder:text-muted-foreground/40"
+                                        className="w-full rounded-xl border border-zinc-300 bg-zinc-50 px-4 py-3 text-sm text-zinc-900 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all placeholder:text-zinc-400"
                                         placeholder="https://example.com/logo.png"
                                     />
-                                    <p className="text-[11px] text-muted-foreground/50 ml-1">
+                                    <p className="text-[11px] text-zinc-400 ml-1">
                                         Paste a direct URL to your company logo image.
                                     </p>
                                 </div>
@@ -179,64 +179,64 @@ export function CompanyModal({ isOpen, onClose, onSave, initialData }: CompanyMo
                         </div>
 
                         <div className="space-y-2">
-                            <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground/80 ml-1">Description</label>
+                            <label className="text-xs font-bold uppercase tracking-widest text-zinc-500 ml-1">Description</label>
                             <textarea
                                 name="description"
                                 value={formData.description || ""}
                                 onChange={handleChange}
                                 rows={3}
-                                className="w-full rounded-xl border border-black/5 bg-black/[0.02] px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all resize-none placeholder:text-muted-foreground/40"
+                                className="w-full rounded-xl border border-zinc-300 bg-zinc-50 px-4 py-3 text-sm text-zinc-900 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all resize-none placeholder:text-zinc-400"
                                 placeholder="What does this company do?"
                             />
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div className="space-y-2">
-                                <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground/80 ml-1">App Store ID (iOS)</label>
+                                <label className="text-xs font-bold uppercase tracking-widest text-zinc-500 ml-1">App Store ID (iOS)</label>
                                 <input
                                     type="text"
                                     name="apple_id"
                                     value={formData.apple_id || ""}
                                     onChange={handleChange}
-                                    className="w-full rounded-xl border border-black/5 bg-black/[0.02] px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all placeholder:text-muted-foreground/40"
+                                    className="w-full rounded-xl border border-zinc-300 bg-zinc-50 px-4 py-3 text-sm text-zinc-900 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all placeholder:text-zinc-400"
                                     placeholder="e.g. 123456789"
                                 />
                             </div>
                             <div className="space-y-2">
-                                <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground/80 ml-1">Play Store ID (Android)</label>
+                                <label className="text-xs font-bold uppercase tracking-widest text-zinc-500 ml-1">Play Store ID (Android)</label>
                                 <input
                                     type="text"
                                     name="android_id"
                                     value={formData.android_id || ""}
                                     onChange={handleChange}
-                                    className="w-full rounded-xl border border-black/5 bg-black/[0.02] px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all placeholder:text-muted-foreground/40"
+                                    className="w-full rounded-xl border border-zinc-300 bg-zinc-50 px-4 py-3 text-sm text-zinc-900 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all placeholder:text-zinc-400"
                                     placeholder="e.g. com.example.app"
                                 />
                             </div>
                         </div>
 
                         <div className="space-y-2">
-                            <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground/80 ml-1">Trustpilot Link</label>
+                            <label className="text-xs font-bold uppercase tracking-widest text-zinc-500 ml-1">Trustpilot Link</label>
                             <input
                                 type="url"
                                 name="trustpilot_link"
                                 value={formData.trustpilot_link || ""}
                                 onChange={handleChange}
-                                className="w-full rounded-xl border border-black/5 bg-black/[0.02] px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all placeholder:text-muted-foreground/40"
+                                className="w-full rounded-xl border border-zinc-300 bg-zinc-50 px-4 py-3 text-sm text-zinc-900 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all placeholder:text-zinc-400"
                                 placeholder="https://www.trustpilot.com/review/..."
                             />
                         </div>
 
                         <div className="space-y-2">
-                            <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground/80 ml-1 flex items-center justify-between">
+                            <label className="text-xs font-bold uppercase tracking-widest text-zinc-500 ml-1 flex items-center justify-between">
                                 Google Maps Links
-                                <span className="text-[10px] font-normal normal-case opacity-40">Comma-separated URLs</span>
+                                <span className="text-[10px] font-normal normal-case text-zinc-400">Comma-separated URLs</span>
                             </label>
                             <textarea
                                 value={mapLinksInput}
                                 onChange={(e) => setMapLinksInput(e.target.value)}
                                 rows={2}
-                                className="w-full rounded-xl border border-black/5 bg-black/[0.02] px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all resize-none placeholder:text-muted-foreground/40"
+                                className="w-full rounded-xl border border-zinc-300 bg-zinc-50 px-4 py-3 text-sm text-zinc-900 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all resize-none placeholder:text-zinc-400"
                                 placeholder="https://maps.google.com/..."
                             />
                         </div>
@@ -249,12 +249,12 @@ export function CompanyModal({ isOpen, onClose, onSave, initialData }: CompanyMo
                     </form>
                 </div>
 
-                <div className="px-8 py-6 border-t border-black/5 flex justify-end gap-3 bg-black/[0.02]">
+                <div className="px-8 py-6 border-t border-zinc-200 flex justify-end gap-3 bg-zinc-50">
                     <button
                         type="button"
                         onClick={onClose}
                         disabled={loading}
-                        className="px-6 py-2.5 text-sm font-bold text-muted-foreground hover:text-foreground transition-colors"
+                        className="px-6 py-2.5 text-sm font-bold text-zinc-500 hover:text-zinc-800 transition-colors"
                     >
                         Cancel
                     </button>
