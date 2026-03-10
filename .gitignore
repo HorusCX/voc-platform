@@ -17,3 +17,4 @@ test-results/
 *.db
 *.sqlite3
 .ruff_cache/
+.deploy_env
