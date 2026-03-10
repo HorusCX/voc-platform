@@ -3,7 +3,9 @@
 import { useState, useEffect } from "react";
 import { ReviewData, fetchPaginatedUserReviewsFromAPI, fetchDashboardStatsFromAPI } from "@/lib/dashboard-utils";
 import UserMenu from "@/components/auth/UserMenu";
-import { Loader2, Search, ArrowUpDown, ChevronDown, FilterX } from "lucide-react";
+import { Loader2, Search, ArrowUpDown, FilterX, Globe } from "lucide-react";
+import { FilterDropdown, PlatformIcon } from "@/components/ui/FilterDropdown";
+import { DateRangePicker } from "@/components/ui/DateRangePicker";
 import { usePortfolio } from "@/contexts/PortfolioContext";
 
 type SortField = 'date' | 'rating' | 'brand' | 'platform' | 'sentiment';
@@ -150,7 +152,7 @@ export default function ReviewsPage() {
         <main className="flex-1 min-h-screen bg-background relative flex flex-col font-sans">
             <UserMenu />
 
-            <div className="max-w-7xl mx-auto px-6 py-12 w-full mt-10 md:mt-0">
+            <div className="w-full max-w-[1600px] mx-auto px-6 2xl:px-12 py-8 mt-10 md:mt-0">
                 <div className="mb-8">
                     <h1 className="text-3xl font-semibold text-foreground tracking-tight mb-2">Reviews</h1>
                     <p className="text-muted-foreground">View and analyze all collected customer reviews.</p>
@@ -180,51 +182,42 @@ export default function ReviewsPage() {
                         <div className="w-px h-6 bg-border hidden sm:block" />
 
                         {/* Brand Filter */}
-                        <div className="relative">
-                            <select
-                                value={selectedBrand}
-                                onChange={(e) => setSelectedBrand(e.target.value)}
-                                className="h-9 pl-3 pr-8 bg-background border border-input rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50 appearance-none text-foreground cursor-pointer transition-colors hover:border-primary/40 min-w-[130px]"
-                            >
-                                <option value="all">All Brands</option>
-                                {availableBrands.map(b => (
-                                    <option key={b} value={b}>{b}</option>
-                                ))}
-                            </select>
-                            <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
-                        </div>
+                        <FilterDropdown
+                            value={selectedBrand}
+                            onChange={setSelectedBrand}
+                            options={[
+                                { value: "all", label: "All Brands" },
+                                ...availableBrands.map(b => ({ value: b, label: b }))
+                            ]}
+                            placeholder="Brand"
+                            size="md"
+                        />
 
                         {/* Platform Filter */}
-                        <div className="relative">
-                            <select
-                                value={selectedPlatform}
-                                onChange={(e) => setSelectedPlatform(e.target.value)}
-                                className="h-9 pl-3 pr-8 bg-background border border-input rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50 appearance-none text-foreground cursor-pointer transition-colors hover:border-primary/40 min-w-[130px]"
-                            >
-                                <option value="all">All Platforms</option>
-                                {availablePlatforms.map(p => (
-                                    <option key={p} value={p}>{p}</option>
-                                ))}
-                            </select>
-                            <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
-                        </div>
+                        <FilterDropdown
+                            value={selectedPlatform}
+                            onChange={setSelectedPlatform}
+                            icon={<Globe className="w-4 h-4" />}
+                            options={[
+                                { value: "all", label: "All Platforms", icon: <Globe className="w-4 h-4 text-muted-foreground" /> },
+                                ...availablePlatforms.map(p => ({
+                                    value: p,
+                                    label: p,
+                                    icon: <PlatformIcon platform={p} />,
+                                }))
+                            ]}
+                            size="md"
+                        />
 
                         {/* Date Range Filter */}
-                        <div className="flex items-center gap-1.5 h-9 bg-background border border-input rounded-lg px-3 focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary/50 transition-colors hover:border-primary/40">
-                            <input
-                                type="date"
-                                value={startDate}
-                                onChange={(e) => setStartDate(e.target.value)}
-                                className="bg-transparent text-sm text-foreground focus:outline-none w-32 [color-scheme:light]"
-                            />
-                            <span className="text-muted-foreground text-xs">→</span>
-                            <input
-                                type="date"
-                                value={endDate}
-                                onChange={(e) => setEndDate(e.target.value)}
-                                className="bg-transparent text-sm text-foreground focus:outline-none w-32 [color-scheme:light]"
-                            />
-                        </div>
+                        <DateRangePicker
+                            startDate={startDate}
+                            endDate={endDate}
+                            onStartChange={setStartDate}
+                            onEndChange={setEndDate}
+                            variant="A"
+                            size="md"
+                        />
 
                         {/* Clear Filters */}
                         {(searchQuery || selectedBrand !== "all" || selectedPlatform !== "all" || startDate || endDate) && (

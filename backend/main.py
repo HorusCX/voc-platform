@@ -573,6 +573,7 @@ class CompanyCreateRequest(BaseModel):
     apple_id: Optional[str] = None
     google_maps_links: Optional[List[Union[str, dict]]] = []
     trustpilot_link: Optional[str] = None
+    logo_url: Optional[str] = None
     is_main: Optional[bool] = False
     portfolio_id: Optional[int] = None
 
@@ -584,6 +585,7 @@ class CompanyUpdateRequest(BaseModel):
     apple_id: Optional[str] = None
     google_maps_links: Optional[List[Union[str, dict]]] = None
     trustpilot_link: Optional[str] = None
+    logo_url: Optional[str] = None
     is_main: Optional[bool] = None
     portfolio_id: Optional[int] = None
 
@@ -1253,11 +1255,23 @@ def list_portfolio_members(
 async def api_get_companies(portfolio_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """List all companies for a user, filtered by portfolio."""
     check_portfolio_access(db, current_user.id, portfolio_id)
-    
+
     companies = db.query(CompanyModel).filter(
         CompanyModel.portfolio_id == portfolio_id
     ).all()
-    return [c.to_dict() for c in companies]
+
+    # Enrich with per-company review stats
+    result = []
+    for c in companies:
+        d = c.to_dict()
+        stats = db.query(
+            func.count(Review.id).label("review_count"),
+            func.avg(Review.rating).label("avg_rating")
+        ).filter(Review.company_id == c.id).one()
+        d["review_count"] = stats.review_count or 0
+        d["avg_rating"] = round(float(stats.avg_rating), 1) if stats.avg_rating else None
+        result.append(d)
+    return result
 
 @app.post("/api/companies")
 async def api_create_company(request: CompanyCreateRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
@@ -1279,6 +1293,7 @@ async def api_create_company(request: CompanyCreateRequest, db: Session = Depend
         apple_id=request.apple_id,
         google_maps_links=request.google_maps_links,
         trustpilot_link=request.trustpilot_link,
+        logo_url=request.logo_url,
         portfolio_id=request.portfolio_id,
         is_main=request.is_main
     )
@@ -1843,9 +1858,9 @@ async def get_dashboard_stats(
     kpi = apply_filters(db.query(
         func.count().label("total"),
         func.avg(Review.rating).label("avg_rating"),
-        func.sum(case((Review.sentiment == 'positive', 1), else_=0)).label("positive"),
-        func.sum(case((Review.sentiment == 'negative', 1), else_=0)).label("negative"),
-        func.sum(case((Review.sentiment == 'neutral',  1), else_=0)).label("neutral"),
+        func.sum(case((func.lower(Review.sentiment) == 'positive', 1), else_=0)).label("positive"),
+        func.sum(case((func.lower(Review.sentiment) == 'negative', 1), else_=0)).label("negative"),
+        func.sum(case((func.lower(Review.sentiment) == 'neutral',  1), else_=0)).label("neutral"),
     )).one()
 
     total_reviews = kpi.total or 0
@@ -1880,9 +1895,9 @@ async def get_dashboard_stats(
         Review.brand,
         func.count().label("total"),
         func.avg(Review.rating).label("avg_rating"),
-        func.sum(case((Review.sentiment == 'positive', 1), else_=0)).label("positive"),
-        func.sum(case((Review.sentiment == 'negative', 1), else_=0)).label("negative"),
-        func.sum(case((Review.sentiment == 'neutral',  1), else_=0)).label("neutral"),
+        func.sum(case((func.lower(Review.sentiment) == 'positive', 1), else_=0)).label("positive"),
+        func.sum(case((func.lower(Review.sentiment) == 'negative', 1), else_=0)).label("negative"),
+        func.sum(case((func.lower(Review.sentiment) == 'neutral',  1), else_=0)).label("neutral"),
     )).group_by(Review.brand).all()
 
     brand_stats_list = []
@@ -1930,9 +1945,9 @@ async def get_dashboard_stats(
     trend_agg = apply_filters(db.query(
         iso_year_col.label("iso_year"),
         iso_week_col.label("iso_week"),
-        func.sum(case((Review.sentiment == 'positive', 1), else_=0)).label("positive"),
-        func.sum(case((Review.sentiment == 'negative', 1), else_=0)).label("negative"),
-        func.sum(case((Review.sentiment == 'neutral',  1), else_=0)).label("neutral"),
+        func.sum(case((func.lower(Review.sentiment) == 'positive', 1), else_=0)).label("positive"),
+        func.sum(case((func.lower(Review.sentiment) == 'negative', 1), else_=0)).label("negative"),
+        func.sum(case((func.lower(Review.sentiment) == 'neutral',  1), else_=0)).label("neutral"),
     )).filter(Review.date.isnot(None)) \
       .group_by(iso_year_col, iso_week_col) \
       .order_by(iso_year_col, iso_week_col).all()

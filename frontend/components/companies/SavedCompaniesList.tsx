@@ -3,13 +3,40 @@
 import { useEffect, useState, useCallback } from "react";
 import { Company, VoCService } from "@/lib/api";
 import { Card } from "../ui/Card";
-import { Loader2, Plus, Globe, Smartphone, MapPin, Star, Building2, Pencil, Trash2, RefreshCw, Clock } from "lucide-react";
+import { Loader2, Plus, Globe, Smartphone, MapPin, Star, Building2, Pencil, Trash2, RefreshCw, Clock, MessageSquare } from "lucide-react";
+import Image from "next/image";
 import { cn } from "@/lib/utils";
 import { CompanyModal } from "./CompanyModal";
 import { usePortfolio } from "@/contexts/PortfolioContext";
 
 interface SavedCompaniesListProps {
     onStartNew: () => void;
+}
+
+function CompanyLogo({ company }: { company: Company }) {
+    const [imgError, setImgError] = useState(false);
+
+    if (company.logo_url && !imgError) {
+        return (
+            <div className="shrink-0 w-12 h-12 rounded-xl border border-border bg-white flex items-center justify-center overflow-hidden shadow-sm">
+                <Image
+                    src={company.logo_url}
+                    alt={company.company_name || "logo"}
+                    width={48}
+                    height={48}
+                    className="w-full h-full object-contain p-1"
+                    onError={() => setImgError(true)}
+                    unoptimized
+                />
+            </div>
+        );
+    }
+
+    return (
+        <div className="shrink-0 w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center text-primary font-bold text-lg uppercase select-none">
+            {(company.company_name ?? '').charAt(0) || '?'}
+        </div>
+    );
 }
 
 export function SavedCompaniesList({ onStartNew }: SavedCompaniesListProps) {
@@ -201,18 +228,18 @@ export function SavedCompaniesList({ onStartNew }: SavedCompaniesListProps) {
                             onClick={handleSync}
                             disabled={isSyncing}
                             className={cn(
-                                "inline-flex items-center gap-2 font-medium py-2 px-4 rounded-full shadow-sm transition-all text-sm",
+                                "inline-flex items-center gap-2 font-medium py-2 px-4 rounded-full border transition-all text-sm",
                                 isSyncing
-                                    ? "bg-muted text-muted-foreground cursor-not-allowed"
-                                    : "bg-primary/10 text-primary hover:bg-primary/20 hover:-translate-y-0.5"
+                                    ? "border-border text-muted-foreground cursor-not-allowed bg-muted/30"
+                                    : "border-border text-foreground hover:border-primary/60 hover:text-primary hover:bg-primary/5"
                             )}
                         >
                             <RefreshCw className={cn("h-4 w-4", isSyncing && "animate-spin")} />
-                            {isSyncing ? "Syncing Reviews..." : "Sync Latest Reviews"}
+                            {isSyncing ? "Syncing..." : "Sync Latest Reviews"}
                         </button>
                         <button
                             onClick={handleAdd}
-                            className="inline-flex items-center gap-2 bg-secondary hover:bg-secondary/80 text-secondary-foreground font-medium py-2 px-4 rounded-full shadow-sm transition-transform hover:-translate-y-0.5 text-sm"
+                            className="inline-flex items-center gap-2 bg-primary hover:bg-primary/90 text-primary-foreground font-semibold py-2 px-4 rounded-full shadow-sm transition-all hover:-translate-y-0.5 text-sm"
                         >
                             <Plus className="h-4 w-4" />
                             Add Company
@@ -221,11 +248,12 @@ export function SavedCompaniesList({ onStartNew }: SavedCompaniesListProps) {
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
                 {companies.map((company, idx) => (
                     <div
                         key={idx}
-                        className="group bg-card border border-border rounded-xl p-5 shadow-sm hover:shadow-lg hover:border-primary/30 hover:shadow-primary/5 transition-all flex flex-col h-full relative overflow-hidden"
+                        onClick={() => handleEdit(company)}
+                        className="group bg-card border border-border rounded-xl p-5 shadow-sm hover:shadow-md hover:shadow-primary/5 hover:border-primary/40 hover:-translate-y-0.5 transition-all duration-200 flex flex-col h-full relative overflow-hidden cursor-pointer"
                     >
                         {/* Status bar */}
                         <div className={cn(
@@ -234,27 +262,48 @@ export function SavedCompaniesList({ onStartNew }: SavedCompaniesListProps) {
                         )} />
 
                         <div className="mb-4">
-                            <div className="flex items-start justify-between mb-1 group/header">
-                                <div className="flex items-center">
-                                    <h3 className="text-lg font-semibold text-foreground line-clamp-1 mr-2" title={company.company_name}>
-                                        {company.company_name}
-                                    </h3>
-                                    {company.is_main && (
-                                        <span className="text-[10px] font-bold uppercase tracking-wider bg-primary/10 text-primary px-2 py-0.5 rounded shrink-0">
-                                            Main
-                                        </span>
-                                    )}
+                            <div className="flex items-start justify-between mb-1">
+                                {/* Logo + Name */}
+                                <div className="flex items-center gap-3 min-w-0">
+                                    {/* Company logo avatar */}
+                                    <CompanyLogo company={company} />
+
+                                    <div className="min-w-0">
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            <h3 className="text-lg font-semibold text-foreground line-clamp-1" title={company.company_name}>
+                                                {company.company_name}
+                                            </h3>
+                                            {company.is_main && (
+                                                <span className="text-[10px] font-bold uppercase tracking-wider bg-primary text-primary-foreground px-2 py-0.5 rounded-full shrink-0 shadow-sm">
+                                                    Main
+                                                </span>
+                                            )}
+                                        </div>
+                                        {company.website && (
+                                            <a
+                                                href={company.website}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                onClick={(e) => e.stopPropagation()}
+                                                className="text-sm text-muted-foreground hover:text-primary flex items-center gap-1.5 line-clamp-1 w-fit transition-colors"
+                                            >
+                                                <Globe className="h-3 w-3 shrink-0" />
+                                                <span className="truncate">{company.website.replace(/^https?:\/\/(www\.)?/, '')}</span>
+                                            </a>
+                                        )}
+                                    </div>
                                 </div>
-                                <div className="flex items-center gap-1 opacity-0 group-hover/header:opacity-100 transition-opacity">
+                                {/* Action buttons */}
+                                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 ml-2">
                                     <button
-                                        onClick={() => handleEdit(company)}
+                                        onClick={(e) => { e.stopPropagation(); handleEdit(company); }}
                                         className="p-1.5 text-muted-foreground hover:text-primary hover:bg-muted rounded-md transition-colors"
                                         title="Edit Company"
                                     >
                                         <Pencil className="w-3.5 h-3.5" />
                                     </button>
                                     <button
-                                        onClick={() => handleDelete(company.id)}
+                                        onClick={(e) => { e.stopPropagation(); handleDelete(company.id); }}
                                         className="p-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-md transition-colors"
                                         title="Delete Company"
                                     >
@@ -262,17 +311,6 @@ export function SavedCompaniesList({ onStartNew }: SavedCompaniesListProps) {
                                     </button>
                                 </div>
                             </div>
-                            {company.website && (
-                                <a
-                                    href={company.website}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-sm text-muted-foreground hover:text-primary flex items-center gap-1.5 line-clamp-1 w-fit transition-colors"
-                                >
-                                    <Globe className="h-3 w-3 shrink-0" />
-                                    <span className="truncate">{company.website.replace(/^https?:\/\/(www\.)?/, '')}</span>
-                                </a>
-                            )}
                         </div>
 
                         {company.description && (
@@ -281,27 +319,47 @@ export function SavedCompaniesList({ onStartNew }: SavedCompaniesListProps) {
                             </p>
                         )}
 
-                        {/* Integration Badges */}
-                        <div className="flex flex-wrap gap-2 mb-5 mt-auto pt-2">
-                            {company.android_id && (
-                                <div className="bg-green-500/10 text-green-600 p-1.5 rounded" title="Android App Added">
-                                    <Smartphone className="h-3.5 w-3.5" />
+                        {/* Metrics */}
+                        <div className="flex items-center gap-4 mb-4 mt-auto">
+                            <div className="flex items-center gap-1.5 text-sm">
+                                <MessageSquare className="h-3.5 w-3.5 text-muted-foreground" />
+                                <span className="font-semibold text-foreground">{(company.review_count ?? 0).toLocaleString()}</span>
+                                <span className="text-muted-foreground">reviews</span>
+                            </div>
+                            {company.avg_rating != null && (
+                                <div className="flex items-center gap-1.5 text-sm">
+                                    <Star className="h-3.5 w-3.5 text-amber-500 fill-amber-500" />
+                                    <span className="font-semibold text-foreground">{company.avg_rating.toFixed(1)}</span>
+                                    <span className="text-muted-foreground">avg</span>
                                 </div>
+                            )}
+                        </div>
+
+                        {/* Integration Badges */}
+                        <div className="flex flex-wrap gap-2 pt-3 border-t border-border">
+                            {company.android_id && (
+                                <span className="inline-flex items-center gap-1.5 bg-green-500/10 text-green-700 text-[11px] font-semibold uppercase tracking-wide px-2.5 py-1 rounded-full">
+                                    <Smartphone className="h-3 w-3" />
+                                    Android
+                                </span>
                             )}
                             {company.apple_id && (
-                                <div className="bg-slate-500/10 text-slate-600 p-1.5 rounded" title="iOS App Added">
-                                    <Smartphone className="h-3.5 w-3.5" />
-                                </div>
+                                <span className="inline-flex items-center gap-1.5 bg-slate-500/10 text-slate-600 text-[11px] font-semibold uppercase tracking-wide px-2.5 py-1 rounded-full">
+                                    <Smartphone className="h-3 w-3" />
+                                    iOS
+                                </span>
                             )}
                             {company.google_maps_links && company.google_maps_links.length > 0 && (
-                                <div className="bg-red-500/10 text-red-600 p-1.5 rounded" title="Google Maps Added">
-                                    <MapPin className="h-3.5 w-3.5" />
-                                </div>
+                                <span className="inline-flex items-center gap-1.5 bg-rose-500/10 text-rose-600 text-[11px] font-semibold uppercase tracking-wide px-2.5 py-1 rounded-full">
+                                    <MapPin className="h-3 w-3" />
+                                    Maps
+                                </span>
                             )}
                             {company.trustpilot_link && (
-                                <div className="bg-blue-500/10 text-blue-600 p-1.5 rounded" title="Trustpilot Added">
-                                    <Star className="h-3.5 w-3.5" />
-                                </div>
+                                <span className="inline-flex items-center gap-1.5 bg-amber-500/10 text-amber-600 text-[11px] font-semibold uppercase tracking-wide px-2.5 py-1 rounded-full">
+                                    <Star className="h-3 w-3" />
+                                    Trustpilot
+                                </span>
                             )}
                         </div>
                     </div>

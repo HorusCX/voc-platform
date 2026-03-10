@@ -23,14 +23,6 @@ const BRAND_COLORS = [
 export function ExecutiveDashboard({ data }: ExecutiveDashboardProps) {
     return (
         <div className="space-y-8">
-            {/* Process Flow - Simplified */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-                <ProcessStep label={`${data.totalReviews} Reviews`} active />
-                <ProcessStep label="AI Analysis" active />
-                <ProcessStep label="Insights" active />
-                <ProcessStep label="Recommendations" active />
-            </div>
-
             {/* KPI Cards */}
             <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                 <KPICard
@@ -61,7 +53,7 @@ export function ExecutiveDashboard({ data }: ExecutiveDashboardProps) {
             </div>
 
             {/* Brand Review Trend Chart */}
-            <div className="bg-card rounded-2xl border border-border p-6 shadow-sm">
+            <div className="bg-card rounded-2xl border border-border p-6 shadow-[0_2px_12px_rgba(0,0,0,0.06),0_1px_3px_rgba(0,0,0,0.04)]">
                 <h3 className="text-sm font-semibold text-foreground mb-6 tracking-tight">Review Trends per Brand (Weekly)</h3>
                 <ResponsiveContainer width="100%" height={300}>
                     <LineChart data={data.brandTrend}>
@@ -104,11 +96,11 @@ export function ExecutiveDashboard({ data }: ExecutiveDashboardProps) {
                         ))}
                     </LineChart>
                 </ResponsiveContainer>
-                <div className="flex flex-wrap items-center justify-center gap-4 mt-4 text-[10px] text-muted-foreground font-medium">
+                <div className="flex flex-wrap items-center justify-center gap-5 mt-5 text-sm text-foreground font-medium">
                     {data.brandStats.map((brand, idx) => (
-                        <div key={brand.brand} className="flex items-center gap-1.5">
+                        <div key={brand.brand} className="flex items-center gap-2">
                             <div
-                                className="w-1.5 h-1.5 rounded-full"
+                                className="w-3 h-3 rounded-full flex-shrink-0"
                                 style={{ backgroundColor: BRAND_COLORS[idx % BRAND_COLORS.length] }}
                             />
                             {brand.brand}
@@ -118,7 +110,7 @@ export function ExecutiveDashboard({ data }: ExecutiveDashboardProps) {
             </div>
 
             {/* Review Sources Breakdown */}
-            <div className="bg-card rounded-2xl border border-border p-6 shadow-sm">
+            <div className="bg-card rounded-2xl border border-border p-6 shadow-[0_2px_12px_rgba(0,0,0,0.06),0_1px_3px_rgba(0,0,0,0.04)]">
                 <h3 className="text-sm font-semibold text-foreground mb-6 tracking-tight">Review Sources</h3>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     {data.platformStats.map((stat, idx) => {
@@ -150,7 +142,7 @@ export function ExecutiveDashboard({ data }: ExecutiveDashboardProps) {
             {/* Brand Comparison Overview */}
             {
                 data.brandStats.length > 1 && (
-                    <div className="bg-card rounded-2xl border border-border p-6 shadow-sm overflow-hidden">
+                    <div className="bg-card rounded-2xl border border-border p-6 shadow-[0_2px_12px_rgba(0,0,0,0.06),0_1px_3px_rgba(0,0,0,0.04)] overflow-hidden">
                         <h3 className="text-sm font-semibold text-foreground mb-6 tracking-tight">Brand Comparison</h3>
                         <div className="overflow-x-auto">
                             <table className="w-full text-sm text-left">
@@ -171,8 +163,8 @@ export function ExecutiveDashboard({ data }: ExecutiveDashboardProps) {
                                             <td className="py-3 px-4 text-right text-muted-foreground tabular-nums">{brand.reviews}</td>
                                             <td className="py-3 px-4 text-right text-muted-foreground tabular-nums">{brand.avgRating.toFixed(2)}</td>
                                             <td className="py-3 px-4 text-right text-destructive/80 tabular-nums">{brand.negativePercent.toFixed(1)}%</td>
-                                            <td className="py-3 px-4 text-right text-muted-foreground tabular-nums">{brand.positivePercent.toFixed(1)}%</td>
-                                            <td className={`py-3 px-4 pr-0 text-right font-medium tabular-nums ${brand.netSentiment >= 0 ? 'text-foreground' : 'text-destructive'}`}>
+                                            <td className="py-3 px-4 text-right text-emerald-600 tabular-nums">{brand.positivePercent.toFixed(1)}%</td>
+                                            <td className={`py-3 px-4 pr-0 text-right font-medium tabular-nums ${brand.netSentiment >= 0 ? 'text-emerald-600' : 'text-destructive'}`}>
                                                 {brand.netSentiment > 0 ? '+' : ''}{brand.netSentiment.toFixed(1)}%
                                             </td>
                                         </tr>
@@ -189,15 +181,6 @@ export function ExecutiveDashboard({ data }: ExecutiveDashboardProps) {
     );
 }
 
-function ProcessStep({ label, active = false }: { label: string; active?: boolean }) {
-    return (
-        <div className={`rounded-xl border p-4 text-center transition-all ${active ? 'bg-card border-border shadow-sm' : 'bg-muted border-transparent opacity-50'
-            }`}>
-            {/* Icon removed */}
-            <div className="text-xs text-muted-foreground font-medium">{label}</div>
-        </div>
-    );
-}
 
 interface KPICardProps {
     title: string;
@@ -211,11 +194,11 @@ function KPICard({ title, value, subtitle, trend, highlight = false }: KPICardPr
     return (
         <div className={`rounded-2xl border p-5 flex flex-col justify-between h-full transition-all ${highlight
             ? 'bg-primary border-primary text-primary-foreground shadow-lg shadow-border/50'
-            : 'bg-card border-border shadow-sm'
+            : 'bg-card border-border shadow-[0_2px_12px_rgba(0,0,0,0.06),0_1px_3px_rgba(0,0,0,0.04)]'
             }`}>
             <div>
                 <div className={`text-xs font-medium mb-1 ${highlight ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>{title}</div>
-                <div className={`font-semibold text-2xl tracking-tight ${trend === 'positive' && !highlight ? 'text-foreground' :
+                <div className={`font-semibold text-2xl tracking-tight ${trend === 'positive' && !highlight ? 'text-emerald-600' :
                     trend === 'negative' && !highlight ? 'text-destructive' :
                         highlight ? 'text-primary-foreground' : 'text-foreground'
                     }`}>
@@ -250,7 +233,7 @@ function DimensionPerformanceMatrix({ data }: { data: DashboardData }) {
     const [viewMode, setViewMode] = React.useState<'positive' | 'net'>('net');
 
     return (
-        <div className="bg-card rounded-2xl border border-border p-6 shadow-sm">
+        <div className="bg-card rounded-2xl border border-border p-6 shadow-[0_2px_12px_rgba(0,0,0,0.06),0_1px_3px_rgba(0,0,0,0.04)]">
             <div className="flex items-center justify-between mb-6">
                 <h3 className="text-sm font-semibold text-foreground tracking-tight">Dimension Performance</h3>
                 <div className="flex bg-muted p-1 rounded-lg">
@@ -306,7 +289,7 @@ function DimensionPerformanceMatrix({ data }: { data: DashboardData }) {
                                     return (
                                         <td key={brandIdx} className="py-3 px-4 text-center tabular-nums">
                                             <span className={`px-2 py-1 rounded text-xs font-medium ${isPositive
-                                                ? 'bg-secondary text-secondary-foreground'
+                                                ? 'bg-emerald-500/10 text-emerald-700'
                                                 : 'bg-destructive/10 text-destructive'
                                                 }`}>
                                                 {value > 0 ? '+' : ''}{value.toFixed(0)}%

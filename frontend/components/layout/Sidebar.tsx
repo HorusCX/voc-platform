@@ -38,7 +38,7 @@ export function Sidebar() {
 
             {/* Sidebar */}
             <aside className={`
-        fixed inset-y-0 left-0 z-40 w-64 bg-card border-r border-border transform transition-transform duration-200 ease-in-out
+        fixed inset-y-0 left-0 z-40 w-64 bg-white border-r border-border shadow-[2px_0_8px_rgba(0,0,0,0.04)] transform transition-transform duration-200 ease-in-out
         md:translate-x-0 ${isOpen ? "translate-x-0" : "-translate-x-full"}
       `}>
                 <div className="h-full flex flex-col py-6 px-4">
@@ -47,9 +47,9 @@ export function Sidebar() {
                         <Image
                             src="/logo.png"
                             alt="HorusCX"
-                            width={120}
-                            height={40}
-                            className="h-9 w-auto object-contain"
+                            width={240}
+                            height={96}
+                            className="h-24 w-auto object-contain"
                             priority
                         />
                     </div>

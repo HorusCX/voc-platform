@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { Company } from "@/lib/api";
-import { Loader2, X } from "lucide-react";
+import { Loader2, X, ImageIcon } from "lucide-react";
 
 interface CompanyModalProps {
     isOpen: boolean;
@@ -19,17 +19,18 @@ export function CompanyModal({ isOpen, onClose, onSave, initialData }: CompanyMo
         apple_id: "",
         android_id: "",
         trustpilot_link: "",
+        logo_url: "",
         google_maps_links: [],
     });
     const [mapLinksInput, setMapLinksInput] = useState("");
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [logoPreviewError, setLogoPreviewError] = useState(false);
 
     useEffect(() => {
         if (isOpen) {
             if (initialData) {
                 setFormData(initialData);
-                // Convert maps links to a comma-separated string for easy editing
                 if (initialData.google_maps_links && initialData.google_maps_links.length > 0) {
                     const linksStr = initialData.google_maps_links
                         .map(l => typeof l === 'string' ? l : l.url || l.name)
@@ -46,12 +47,14 @@ export function CompanyModal({ isOpen, onClose, onSave, initialData }: CompanyMo
                     apple_id: "",
                     android_id: "",
                     trustpilot_link: "",
+                    logo_url: "",
                     google_maps_links: [],
                 });
                 setMapLinksInput("");
             }
             setError(null);
             setLoading(false);
+            setLogoPreviewError(false);
         }
     }, [isOpen, initialData]);
 
@@ -59,6 +62,7 @@ export function CompanyModal({ isOpen, onClose, onSave, initialData }: CompanyMo
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
         const { name, value } = e.target;
+        if (name === "logo_url") setLogoPreviewError(false);
         setFormData(prev => ({ ...prev, [name]: value }));
     };
 
@@ -73,7 +77,6 @@ export function CompanyModal({ isOpen, onClose, onSave, initialData }: CompanyMo
         setLoading(true);
         setError(null);
 
-        // Process map links
         const rawLinks = mapLinksInput.split(',').map(s => s.trim()).filter(Boolean);
         const mapLinks = rawLinks.map(url => ({ name: url, url }));
 
@@ -138,6 +141,40 @@ export function CompanyModal({ isOpen, onClose, onSave, initialData }: CompanyMo
                                     className="w-full rounded-xl border border-black/5 bg-black/[0.02] px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all placeholder:text-muted-foreground/40"
                                     placeholder="https://acme.com"
                                 />
+                            </div>
+                        </div>
+
+                        {/* Logo Section */}
+                        <div className="space-y-3">
+                            <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground/80 ml-1">Company Logo</label>
+                            <div className="flex items-center gap-4">
+                                {/* Logo Preview */}
+                                <div className="shrink-0 w-16 h-16 rounded-xl border border-black/10 bg-black/[0.02] flex items-center justify-center overflow-hidden">
+                                    {formData.logo_url && !logoPreviewError ? (
+                                        // eslint-disable-next-line @next/next/no-img-element
+                                        <img
+                                            src={formData.logo_url}
+                                            alt="Logo preview"
+                                            className="w-full h-full object-contain p-1"
+                                            onError={() => setLogoPreviewError(true)}
+                                        />
+                                    ) : (
+                                        <ImageIcon className="w-6 h-6 text-muted-foreground/30" />
+                                    )}
+                                </div>
+                                <div className="flex-1 space-y-2">
+                                    <input
+                                        type="url"
+                                        name="logo_url"
+                                        value={formData.logo_url || ""}
+                                        onChange={handleChange}
+                                        className="w-full rounded-xl border border-black/5 bg-black/[0.02] px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all placeholder:text-muted-foreground/40"
+                                        placeholder="https://example.com/logo.png"
+                                    />
+                                    <p className="text-[11px] text-muted-foreground/50 ml-1">
+                                        Paste a direct URL to your company logo image.
+                                    </p>
+                                </div>
                             </div>
                         </div>
 

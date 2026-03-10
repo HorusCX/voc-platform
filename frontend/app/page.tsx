@@ -57,28 +57,30 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen relative flex flex-col items-center py-24 font-sans selection:bg-primary/10 bg-grid-pattern">
+    <main className="min-h-screen relative flex flex-col py-8 font-sans selection:bg-primary/10">
       <UserMenu />
 
-      <div className="w-full max-w-3xl px-6 mb-12 text-center mt-8 sm:mt-0 relative">
+      <div className="w-full max-w-[1600px] mx-auto px-6 2xl:px-12 mb-8">
         {(view === "stepper") && (
           <button
             onClick={resetView}
-            className="absolute left-6 top-1/2 -translate-y-1/2 sm:flex hidden items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+            className="sm:flex hidden items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors mb-4"
           >
             <ArrowLeft className="h-4 w-4" />
             Back
           </button>
         )}
-        <h1 className="text-4xl sm:text-5xl font-semibold tracking-tight bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent mb-4">
-          VoC Intelligence Platform
-        </h1>
-        <p className="text-muted-foreground text-lg sm:text-xl font-medium tracking-tight">
-          Automated Review Analysis &amp; Insight Generation
-        </p>
+        <div className="text-center">
+          <h1 className="text-3xl sm:text-4xl font-bold tracking-tight bg-gradient-to-r from-slate-900 to-slate-500 bg-clip-text text-transparent mb-1.5">
+            VoC Intelligence Platform
+          </h1>
+          <p className="text-muted-foreground text-base sm:text-lg">
+            Automated Review Analysis &amp; Insight Generation
+          </p>
+        </div>
       </div>
 
-      <div className="w-full max-w-6xl px-6 flex-1">
+      <div className="w-full max-w-[1600px] mx-auto px-6 2xl:px-12 flex-1">
         {view === "companies" && (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
             <SavedCompaniesList

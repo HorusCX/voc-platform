@@ -60,9 +60,9 @@ export default function SignupPage() {
                     <Image
                         src="/logo.png"
                         alt="HorusCX"
-                        width={160}
-                        height={52}
-                        className="h-12 w-auto object-contain mb-2"
+                        width={220}
+                        height={72}
+                        className="h-18 w-auto object-contain mb-2"
                         priority
                     />
                     <p className="text-sm text-muted-foreground">Voice of Customer Intelligence</p>

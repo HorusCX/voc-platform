@@ -124,8 +124,8 @@ export default function DimensionsPage() {
         <main className="flex-1 min-h-screen bg-background relative flex flex-col font-sans">
             <UserMenu />
 
-            <div className="max-w-5xl mx-auto px-6 py-12 w-full mt-10 md:mt-0">
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+            <div className="w-full max-w-[1600px] mx-auto px-6 2xl:px-12 py-8 mt-10 md:mt-0">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4 md:pr-52">
                     <div>
                         <h1 className="text-3xl font-semibold text-foreground tracking-tight mb-2">Dimensions</h1>
                         <p className="text-muted-foreground">Manage the dimensions (topics) used by AI to analyze your reviews.</p>
@@ -156,12 +156,9 @@ export default function DimensionsPage() {
                     </div>
                 )}
 
-                <div className="bg-blue-500/10 border border-blue-500/20 text-blue-500 px-4 py-3 rounded-lg mb-6 text-sm flex items-start gap-3">
-                    <AlertTriangle className="h-5 w-5 mt-0.5 flex-shrink-0" />
-                    <div>
-                        <strong className="block mb-1">Consistency Warning</strong>
-                        Modifying dimensions affects how your incoming reviews are categorized by the AI. If you add, edit, or delete a dimension, make sure to click <strong>&quot;Re-analyze Active Data&quot;</strong> to apply the changes retroactively to all your historical reviews.
-                    </div>
+                <div className="bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-400 px-4 py-3 rounded-lg mb-6 text-sm flex items-center gap-3">
+                    <AlertTriangle className="h-5 w-5 flex-shrink-0" />
+                    <span>After editing dimensions, click <strong>&quot;Re-analyze Active Data&quot;</strong> to retroactively update all historical reviews.</span>
                 </div>
 
                 {error && (
@@ -184,15 +181,15 @@ export default function DimensionsPage() {
                         ) : (
                             <div className="overflow-x-auto">
                                 <table className="w-full text-sm text-left">
-                                    <thead className="text-xs text-muted-foreground uppercase bg-muted/50 border-b border-border">
+                                    <thead className="text-xs text-foreground/70 uppercase bg-muted/50 border-b border-border">
                                         <tr>
-                                            <th className="px-6 py-4 font-medium w-1/4">Name</th>
-                                            <th className="px-6 py-4 font-medium w-1/3">Description</th>
-                                            <th className="px-6 py-4 font-medium w-1/4">Keywords</th>
-                                            <th className="px-6 py-4 font-medium w-1/12 text-right">Actions</th>
+                                            <th className="px-6 py-4 font-semibold w-1/4">Name</th>
+                                            <th className="px-6 py-4 font-semibold w-1/3">Description</th>
+                                            <th className="px-6 py-4 font-semibold w-1/4">Keywords</th>
+                                            <th className="px-6 py-4 font-semibold w-1/12 text-right">Actions</th>
                                         </tr>
                                     </thead>
-                                    <tbody className="divide-y divide-border">
+                                    <tbody className="divide-y divide-gray-200 dark:divide-border">
                                         {dimensions.map((dim: Dimension) => (
                                             <tr key={dim.id} className="bg-card hover:bg-muted/30 transition-colors">
                                                 <td className="px-6 py-4 font-medium text-foreground">
@@ -204,7 +201,7 @@ export default function DimensionsPage() {
                                                 <td className="px-6 py-4">
                                                     <div className="flex flex-wrap gap-1">
                                                         {dim.keywords?.map((k: string, i: number) => (
-                                                            <span key={i} className="bg-muted px-2 py-0.5 rounded-md text-xs text-muted-foreground border border-border">
+                                                            <span key={i} className="bg-blue-50 px-2 py-0.5 rounded-md text-xs text-blue-600 border border-blue-100 dark:bg-primary/10 dark:text-primary dark:border-primary/20">
                                                                 {k}
                                                             </span>
                                                         ))}

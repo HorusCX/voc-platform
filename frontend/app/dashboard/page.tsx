@@ -1,12 +1,14 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { ExecutiveDashboard } from "@/components/dashboard/ExecutiveDashboard";
 import { OperationalDashboard } from "@/components/dashboard/OperationalDashboard";
 import {
     DashboardData,
 } from "@/lib/dashboard-utils";
-import { Loader2 } from "lucide-react";
+import { Loader2, BarChart2, List, Globe } from "lucide-react";
+import { DateRangePicker } from "@/components/ui/DateRangePicker";
+import { FilterDropdown, PlatformIcon } from "@/components/ui/FilterDropdown";
 import { usePortfolio } from "@/contexts/PortfolioContext";
 import { VoCService } from "@/lib/api";
 
@@ -80,28 +82,13 @@ export default function DashboardPage() {
         processReviews();
     }, [processReviews]); // We refetch when selectedBrands or portfolio changes
 
-    const toggleBrand = (brand: string) => {
-        setSelectedBrands(prev =>
-            prev.includes(brand)
-                ? prev.filter(b => b !== brand)
-                : [...prev, brand]
-        );
-    };
-
-    const selectAllBrands = () => {
-        setSelectedBrands([]);
-    };
-
-    const deselectAllBrands = () => {
-        setSelectedBrands(availableBrands.length > 0 ? [availableBrands[0]] : []);
-    };
 
     return (
         <main className="min-h-screen bg-background">
             {/* Header / Navigation */}
             <header className="bg-background/80 border-b border-border sticky top-0 z-50 backdrop-blur-md supports-[backdrop-filter]:bg-background/80">
-                <div className="max-w-7xl mx-auto px-6 py-4">
-                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-2">
+                <div className="w-full max-w-[1600px] mx-auto px-6 2xl:px-12 py-4">
+                    <div className="flex items-start justify-between gap-4 mb-4">
                         <div>
                             <h1 className="text-xl font-semibold text-foreground tracking-tight">
                                 VoC Intelligence
@@ -110,66 +97,67 @@ export default function DashboardPage() {
                                 Last updated: {new Date().toLocaleDateString()}
                             </p>
                         </div>
+                    </div>
 
-                        {/* Tab Navigation */}
-                        <nav className="flex items-center gap-1 bg-muted p-1 rounded-lg self-start md:self-auto">
+                    {/* Dashboard View Toggle + Filters Row */}
+                    <div className="flex flex-wrap items-center gap-2">
+                        {/* Dashboard View Toggle */}
+                        <nav className="flex items-center gap-1 bg-muted p-1 rounded-xl border border-border/60">
                             <TabButton
                                 active={activeTab === 'executive'}
                                 onClick={() => setActiveTab('executive')}
                                 label="Executive"
+                                icon={<BarChart2 className="w-3.5 h-3.5" />}
                             />
                             <TabButton
                                 active={activeTab === 'operational'}
                                 onClick={() => setActiveTab('operational')}
                                 label="Operational"
+                                icon={<List className="w-3.5 h-3.5" />}
                             />
                         </nav>
-                    </div>
 
-                    {/* Filters Row */}
-                    <div className="flex flex-wrap items-center gap-2 pt-3 mt-1">
+                        {/* Divider */}
+                        <div className="w-px h-6 bg-border mx-1" />
+
                         {/* Brand Filter */}
                         {availableBrands.length > 0 && (
-                            <BrandFilter
-                                availableBrands={availableBrands}
-                                selectedBrands={selectedBrands}
-                                onToggleBrand={toggleBrand}
-                                onSelectAll={selectAllBrands}
-                                onDeselectAll={deselectAllBrands}
+                            <FilterDropdown
+                                multiSelect
+                                placeholder="Brands"
+                                allLabel="All"
+                                value={selectedBrands}
+                                onChange={setSelectedBrands}
+                                options={availableBrands.map(b => ({ value: b, label: b }))}
+                                size="sm"
                             />
                         )}
 
                         {/* Platform Filter */}
-                        <div className="relative">
-                            <select
-                                value={selectedPlatform}
-                                onChange={(e) => setSelectedPlatform(e.target.value)}
-                                className="h-8 pl-3 pr-8 bg-background border border-input rounded-lg text-xs font-medium text-foreground appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50 transition-colors hover:border-primary/40 min-w-[130px]"
-                            >
-                                <option value="all">All Platforms</option>
-                                {availablePlatforms.map(p => (
-                                    <option key={p} value={p}>{p}</option>
-                                ))}
-                            </select>
-                            <svg className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
-                        </div>
+                        <FilterDropdown
+                            value={selectedPlatform}
+                            onChange={setSelectedPlatform}
+                            icon={<Globe className="w-4 h-4" />}
+                            options={[
+                                { value: "all", label: "All Platforms", icon: <Globe className="w-4 h-4 text-muted-foreground" /> },
+                                ...availablePlatforms.map(p => ({
+                                    value: p,
+                                    label: p,
+                                    icon: <PlatformIcon platform={p} />,
+                                }))
+                            ]}
+                            size="sm"
+                        />
 
                         {/* Date Range Filter */}
-                        <div className="flex items-center gap-1.5 h-8 bg-background border border-input rounded-lg px-3 focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary/50 transition-colors hover:border-primary/40">
-                            <input
-                                type="date"
-                                value={startDate}
-                                onChange={(e) => setStartDate(e.target.value)}
-                                className="bg-transparent text-xs font-medium text-foreground focus:outline-none w-28 [color-scheme:light]"
-                            />
-                            <span className="text-muted-foreground text-xs px-0.5">→</span>
-                            <input
-                                type="date"
-                                value={endDate}
-                                onChange={(e) => setEndDate(e.target.value)}
-                                className="bg-transparent text-xs font-medium text-foreground focus:outline-none w-28 [color-scheme:light]"
-                            />
-                        </div>
+                        <DateRangePicker
+                            startDate={startDate}
+                            endDate={endDate}
+                            onStartChange={setStartDate}
+                            onEndChange={setEndDate}
+                            variant="D"
+                            size="sm"
+                        />
 
                         {/* Clear Filters Button */}
                         {(selectedPlatform !== 'all' || startDate !== '' || endDate !== '' || selectedBrands.length > 0) && (
@@ -190,7 +178,7 @@ export default function DashboardPage() {
             </header>
 
             {/* Content */}
-            <div className="max-w-7xl mx-auto px-6 py-10">
+            <div className="w-full max-w-[1600px] mx-auto px-6 2xl:px-12 py-10">
                 {isLoading && (
                     <div className="flex flex-col items-center justify-center py-32 animate-in fade-in duration-500">
                         <Loader2 className="h-8 w-8 text-muted-foreground animate-spin mb-4" />
@@ -234,7 +222,7 @@ export default function DashboardPage() {
 
             {/* Footer */}
             <footer className="border-t border-border mt-auto bg-card">
-                <div className="max-w-7xl mx-auto px-6 py-8 text-center">
+                <div className="w-full max-w-[1600px] mx-auto px-6 2xl:px-12 py-8 text-center">
                     <p className="text-xs font-medium text-muted-foreground">
                         © {new Date().getFullYear()} HorusCX. All rights reserved.
                     </p>
@@ -244,137 +232,21 @@ export default function DashboardPage() {
     );
 }
 
-function TabButton({ active, onClick, label }: { active: boolean; onClick: () => void; label: string }) {
+function TabButton({ active, onClick, label, icon }: { active: boolean; onClick: () => void; label: string; icon?: React.ReactNode }) {
     return (
         <button
             onClick={onClick}
             className={`
-                relative px-3 py-1.5 text-sm font-medium rounded-md transition-all duration-200
+                relative flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg transition-all duration-200
                 ${active
-                    ? 'text-foreground bg-background shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-background/50'
+                    ? 'text-primary bg-primary/10 shadow-sm border border-primary/25 ring-1 ring-primary/10'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-background/70'
                 }
             `}
         >
+            {icon && <span>{icon}</span>}
             {label}
         </button>
     );
 }
 
-interface BrandFilterProps {
-    availableBrands: string[];
-    selectedBrands: string[];
-    onToggleBrand: (brand: string) => void;
-    onSelectAll: () => void;
-    onDeselectAll: () => void;
-}
-
-function BrandFilter({
-    availableBrands,
-    selectedBrands,
-    onToggleBrand,
-    onSelectAll,
-    onDeselectAll
-}: BrandFilterProps) {
-    const [isOpen, setIsOpen] = useState(false);
-
-    // Close dropdown when clicking outside
-    useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-            const target = event.target as HTMLElement;
-            if (isOpen && !target.closest('.brand-filter-container')) {
-                setIsOpen(false);
-            }
-        };
-
-        document.addEventListener('mousedown', handleClickOutside);
-        return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, [isOpen]);
-
-    const isAllSelected = selectedBrands.length === 0;
-    const selectedCount = isAllSelected ? availableBrands.length : selectedBrands.length;
-
-    return (
-        <div className="relative brand-filter-container inline-block">
-            <div className="flex items-center gap-2">
-                <button
-                    onClick={() => setIsOpen(!isOpen)}
-                    className={`h-8 flex items-center gap-2 px-3 bg-background border rounded-lg transition-colors text-xs font-medium group ${isOpen ? 'border-primary/50 ring-2 ring-primary/20' : 'border-input hover:border-primary/40'}`}
-                >
-                    <span className="text-muted-foreground">Brands:</span>
-                    <span className="text-foreground">
-                        {isAllSelected ? `All` : `${selectedCount} selected`}
-                    </span>
-                    <svg
-                        className={`w-3 h-3 text-muted-foreground transition-transform ${isOpen ? 'rotate-180' : ''}`}
-                        fill="none" stroke="currentColor" viewBox="0 0 24 24"
-                    >
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                    </svg>
-                </button>
-
-                {!isAllSelected && (
-                    <button
-                        onClick={onSelectAll}
-                        className="h-8 px-2 text-xs font-medium text-primary hover:bg-primary/5 rounded-lg transition-colors"
-                    >
-                        Reset
-                    </button>
-                )}
-            </div>
-
-            {/* Dropdown Menu */}
-            {isOpen && (
-                <div className="absolute top-full left-0 mt-2 bg-popover border border-border rounded-xl shadow-lg shadow-black/5 z-50 w-64 max-h-[400px] overflow-y-auto p-1.5">
-                    <div className="px-2 py-1.5 border-b border-border mb-1 flex items-center justify-between">
-                        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Select Brands</span>
-                        <div className="flex gap-2">
-                            <button
-                                onClick={onSelectAll}
-                                className="text-[10px] bg-accent hover:bg-accent/80 text-accent-foreground px-2 py-0.5 rounded border border-input transition-colors"
-                            >
-                                All
-                            </button>
-                            <button
-                                onClick={onDeselectAll}
-                                className="text-[10px] hover:bg-accent text-muted-foreground hover:text-accent-foreground px-2 py-0.5 rounded transition-colors"
-                            >
-                                Clear
-                            </button>
-                        </div>
-                    </div>
-                    {availableBrands.map((brand) => {
-                        const isSelected = isAllSelected || selectedBrands.includes(brand);
-                        return (
-                            <label
-                                key={brand}
-                                className={`flex items-center gap-3 px-2 py-1.5 rounded-lg cursor-pointer transition-colors ${isSelected ? 'bg-accent' : 'hover:bg-accent'
-                                    }`}
-                            >
-                                <div className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${isSelected ? 'bg-primary border-primary' : 'border-input bg-background'
-                                    }`}>
-                                    {isSelected && (
-                                        <svg className="w-2.5 h-2.5 text-primary-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                                        </svg>
-                                    )}
-                                </div>
-                                <input
-                                    type="checkbox"
-                                    checked={isSelected}
-                                    onChange={() => onToggleBrand(brand)}
-                                    className="hidden"
-                                />
-                                <div className="flex-1 min-w-0">
-                                    <p className={`text-sm font-medium truncate ${isSelected ? 'text-foreground' : 'text-muted-foreground'}`}>
-                                        {brand}
-                                    </p>
-                                </div>
-                            </label>
-                        );
-                    })}
-                </div>
-            )}
-        </div>
-    );
-}
