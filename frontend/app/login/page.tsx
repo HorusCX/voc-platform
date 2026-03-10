@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { VoCService } from "@/lib/api";
 import Link from "next/link";
-import { Loader2 } from "lucide-react";
+import { Loader2, Sparkles } from "lucide-react";
 
 export default function LoginPage() {
     const [email, setEmail] = useState("");
@@ -38,73 +38,82 @@ export default function LoginPage() {
     };
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-zinc-50 py-12 px-4 sm:px-6 lg:px-8">
-            <div className="max-w-md w-full space-y-8 bg-white p-8 rounded-xl shadow-sm border border-border">
-                <div>
-                    <h2 className="mt-2 text-center text-3xl font-semibold tracking-tight text-foreground">
+        <div className="min-h-screen flex items-center justify-center bg-background py-12 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
+            {/* Radial glow accent */}
+            <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(60,131,246,0.1)_0%,_transparent_60%)] pointer-events-none" />
+            <div className="absolute inset-0 bg-grid-pattern pointer-events-none opacity-50" />
+
+            <div className="max-w-md w-full space-y-6 relative z-10">
+                {/* Brand identity */}
+                <div className="text-center">
+                    <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-primary/20 border border-primary/30 mb-4">
+                        <Sparkles className="h-6 w-6 text-primary" />
+                    </div>
+                    <h1 className="text-2xl font-bold text-foreground">HorusCX</h1>
+                    <p className="text-sm text-muted-foreground mt-1">Voice of Customer Intelligence</p>
+                </div>
+
+                {/* Glass card */}
+                <div className="bg-white/5 backdrop-blur-xl p-8 rounded-2xl border border-white/10 shadow-2xl">
+                    <h2 className="text-center text-2xl font-semibold tracking-tight text-foreground mb-6">
                         Sign in to VoC
                     </h2>
-                    <div className="mt-4 flex justify-center w-full">
+
+                    <div className="mb-4">
                         <Link
                             href="/signup"
-                            className="w-full inline-flex justify-center items-center py-2.5 px-4 border border-primary text-sm font-medium rounded-lg text-primary bg-transparent hover:bg-primary/5 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary transition-colors"
+                            className="w-full inline-flex justify-center items-center py-2.5 px-4 border border-primary/30 text-sm font-medium rounded-lg text-primary bg-primary/5 hover:bg-primary/10 focus:outline-none focus:ring-2 focus:ring-primary/50 transition-colors"
                         >
                             Don&apos;t have an account? Sign Up
                         </Link>
                     </div>
-                </div>
 
-                <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-                    {error && (
-                        <div className="rounded-md bg-red-50 p-4 border border-red-200">
-                            <div className="flex">
-                                <div className="ml-3">
-                                    <h3 className="text-sm font-medium text-red-800">{error}</h3>
-                                </div>
+                    <form className="space-y-4" onSubmit={handleSubmit}>
+                        {error && (
+                            <div className="rounded-lg bg-red-500/10 p-4 border border-red-500/20">
+                                <h3 className="text-sm font-medium text-red-400">{error}</h3>
+                            </div>
+                        )}
+
+                        <div className="space-y-3">
+                            <div>
+                                <label htmlFor="email-address" className="sr-only">
+                                    Email address
+                                </label>
+                                <input
+                                    id="email-address"
+                                    name="email"
+                                    type="email"
+                                    autoComplete="email"
+                                    required
+                                    className="appearance-none rounded-lg relative block w-full px-3 py-2.5 border border-white/10 placeholder-muted-foreground text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary sm:text-sm bg-white/5 transition-colors"
+                                    placeholder="Email address"
+                                    value={email}
+                                    onChange={(e) => setEmail(e.target.value)}
+                                />
+                            </div>
+                            <div>
+                                <label htmlFor="password" className="sr-only">
+                                    Password
+                                </label>
+                                <input
+                                    id="password"
+                                    name="password"
+                                    type="password"
+                                    autoComplete="current-password"
+                                    required
+                                    className="appearance-none rounded-lg relative block w-full px-3 py-2.5 border border-white/10 placeholder-muted-foreground text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary sm:text-sm bg-white/5 transition-colors"
+                                    placeholder="Password"
+                                    value={password}
+                                    onChange={(e) => setPassword(e.target.value)}
+                                />
                             </div>
                         </div>
-                    )}
 
-                    <div className="space-y-4 rounded-md shadow-sm">
-                        <div>
-                            <label htmlFor="email-address" className="sr-only">
-                                Email address
-                            </label>
-                            <input
-                                id="email-address"
-                                name="email"
-                                type="email"
-                                autoComplete="email"
-                                required
-                                className="appearance-none rounded-lg relative block w-full px-3 py-2 border border-input placeholder-muted-foreground text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary focus:z-10 sm:text-sm bg-background transition-colors"
-                                placeholder="Email address"
-                                value={email}
-                                onChange={(e) => setEmail(e.target.value)}
-                            />
-                        </div>
-                        <div>
-                            <label htmlFor="password" className="sr-only">
-                                Password
-                            </label>
-                            <input
-                                id="password"
-                                name="password"
-                                type="password"
-                                autoComplete="current-password"
-                                required
-                                className="appearance-none rounded-lg relative block w-full px-3 py-2 border border-input placeholder-muted-foreground text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary focus:z-10 sm:text-sm bg-background transition-colors"
-                                placeholder="Password"
-                                value={password}
-                                onChange={(e) => setPassword(e.target.value)}
-                            />
-                        </div>
-                    </div>
-
-                    <div>
                         <button
                             type="submit"
                             disabled={isSubmitting}
-                            className="group relative w-full flex justify-center py-2.5 px-4 border border-transparent text-sm font-medium rounded-lg text-white bg-primary hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="w-full flex justify-center py-2.5 px-4 border border-transparent text-sm font-medium rounded-lg text-white bg-primary hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed mt-2"
                         >
                             {isSubmitting ? (
                                 <span className="flex items-center">
@@ -115,8 +124,8 @@ export default function LoginPage() {
                                 "Sign in"
                             )}
                         </button>
-                    </div>
-                </form>
+                    </form>
+                </div>
             </div>
         </div>
     );

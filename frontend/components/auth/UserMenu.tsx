@@ -21,7 +21,7 @@ export default function UserMenu() {
             </div>
             <button
                 onClick={logout}
-                className="p-2 text-muted-foreground hover:text-red-500 transition-colors rounded-full hover:bg-red-50"
+                className="p-2 text-muted-foreground hover:text-red-400 transition-colors rounded-full hover:bg-red-500/10"
                 title="Sign out"
             >
                 <LogOut size={18} />

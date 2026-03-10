@@ -57,7 +57,7 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen relative flex flex-col items-center py-24 font-sans selection:bg-primary/10">
+    <main className="min-h-screen relative flex flex-col items-center py-24 font-sans selection:bg-primary/10 bg-grid-pattern">
       <UserMenu />
 
       <div className="w-full max-w-3xl px-6 mb-12 text-center mt-8 sm:mt-0 relative">
@@ -70,7 +70,7 @@ export default function Home() {
             Back
           </button>
         )}
-        <h1 className="text-4xl sm:text-5xl font-semibold text-foreground mb-4 tracking-tight">
+        <h1 className="text-4xl sm:text-5xl font-semibold tracking-tight bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent mb-4">
           VoC Intelligence Platform
         </h1>
         <p className="text-muted-foreground text-lg sm:text-xl font-medium tracking-tight">

@@ -134,7 +134,7 @@ export default function DimensionsPage() {
                         <button
                             onClick={triggerReanalyze}
                             disabled={isReanalyzing}
-                            className="bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 disabled:opacity-50"
+                            className="bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 disabled:opacity-50"
                         >
                             {isReanalyzing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
                             Re-analyze Active Data

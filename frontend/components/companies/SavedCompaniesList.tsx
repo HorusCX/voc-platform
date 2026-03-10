@@ -225,7 +225,7 @@ export function SavedCompaniesList({ onStartNew }: SavedCompaniesListProps) {
                 {companies.map((company, idx) => (
                     <div
                         key={idx}
-                        className="group bg-card border border-border rounded-xl p-5 shadow-sm hover:shadow-md transition-all flex flex-col h-full relative overflow-hidden"
+                        className="group bg-card border border-border rounded-xl p-5 shadow-sm hover:shadow-lg hover:border-primary/30 hover:shadow-primary/5 transition-all flex flex-col h-full relative overflow-hidden"
                     >
                         {/* Status bar */}
                         <div className={cn(
