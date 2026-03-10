@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { Building2, MessageSquare, BarChart3, Menu, X, Tags, UserPlus, Bot } from "lucide-react";
 import { useState } from "react";
@@ -41,16 +42,16 @@ export function Sidebar() {
         md:translate-x-0 ${isOpen ? "translate-x-0" : "-translate-x-full"}
       `}>
                 <div className="h-full flex flex-col py-6 px-4">
-                    {/* Logo with icon */}
+                    {/* Logo */}
                     <div className="mb-8 px-2 flex items-center justify-center md:justify-start mt-8 md:mt-0">
-                        <div className="flex items-center gap-2.5">
-                            <div className="w-7 h-7 rounded-lg bg-primary/20 border border-primary/30 flex items-center justify-center flex-shrink-0">
-                                <BarChart3 className="h-4 w-4 text-primary" />
-                            </div>
-                            <h2 className="text-xl font-bold tracking-tight text-foreground">
-                                VoC <span className="text-primary font-medium">Intelligence</span>
-                            </h2>
-                        </div>
+                        <Image
+                            src="/logo.png"
+                            alt="HorusCX"
+                            width={120}
+                            height={40}
+                            className="h-9 w-auto object-contain"
+                            priority
+                        />
                     </div>
 
                     <PortfolioSwitcher />

@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { VoCService } from "@/lib/api";
 import Link from "next/link";
-import { Loader2, Sparkles } from "lucide-react";
+import Image from "next/image";
+import { Loader2 } from "lucide-react";
 
 export default function LoginPage() {
     const [email, setEmail] = useState("");
@@ -45,12 +46,16 @@ export default function LoginPage() {
 
             <div className="max-w-md w-full space-y-6 relative z-10">
                 {/* Brand identity */}
-                <div className="text-center">
-                    <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-primary/10 border border-primary/20 mb-4">
-                        <Sparkles className="h-6 w-6 text-primary" />
-                    </div>
-                    <h1 className="text-2xl font-bold text-foreground">HorusCX</h1>
-                    <p className="text-sm text-muted-foreground mt-1">Voice of Customer Intelligence</p>
+                <div className="flex flex-col items-center">
+                    <Image
+                        src="/logo.png"
+                        alt="HorusCX"
+                        width={160}
+                        height={52}
+                        className="h-12 w-auto object-contain mb-2"
+                        priority
+                    />
+                    <p className="text-sm text-muted-foreground">Voice of Customer Intelligence</p>
                 </div>
 
                 {/* Card */}
