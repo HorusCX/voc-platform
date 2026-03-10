@@ -127,7 +127,7 @@ export default function DashboardPage() {
                     </div>
 
                     {/* Filters Row */}
-                    <div className="flex flex-wrap items-center gap-4 pt-3 mt-1">
+                    <div className="flex flex-wrap items-center gap-2 pt-3 mt-1">
                         {/* Brand Filter */}
                         {availableBrands.length > 0 && (
                             <BrandFilter
@@ -140,38 +140,35 @@ export default function DashboardPage() {
                         )}
 
                         {/* Platform Filter */}
-                        <div className="flex items-center gap-2">
-                            <span className="text-xs font-medium text-muted-foreground whitespace-nowrap">Platform:</span>
+                        <div className="relative">
                             <select
                                 value={selectedPlatform}
                                 onChange={(e) => setSelectedPlatform(e.target.value)}
-                                className="pl-3 pr-8 py-1.5 bg-background border border-dashed border-input rounded-md hover:border-ring/50 hover:bg-accent transition-colors text-xs font-medium text-muted-foreground appearance-none cursor-pointer focus:outline-none focus:ring-1 focus:ring-ring/20 min-w-[140px]"
+                                className="h-8 pl-3 pr-8 bg-background border border-input rounded-lg text-xs font-medium text-foreground appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50 transition-colors hover:border-primary/40 min-w-[130px]"
                             >
                                 <option value="all">All Platforms</option>
                                 {availablePlatforms.map(p => (
                                     <option key={p} value={p}>{p}</option>
                                 ))}
                             </select>
+                            <svg className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
                         </div>
 
                         {/* Date Range Filter */}
-                        <div className="flex items-center gap-2">
-                            <span className="text-xs font-medium text-muted-foreground whitespace-nowrap">Range:</span>
-                            <div className="flex items-center gap-1.5 bg-background border border-dashed border-input rounded-md px-2 py-1">
-                                <input
-                                    type="date"
-                                    value={startDate}
-                                    onChange={(e) => setStartDate(e.target.value)}
-                                    className="bg-transparent text-xs font-medium text-foreground focus:outline-none w-28 h-6 [color-scheme:dark]"
-                                />
-                                <span className="text-[10px] text-muted-foreground uppercase font-bold px-1">to</span>
-                                <input
-                                    type="date"
-                                    value={endDate}
-                                    onChange={(e) => setEndDate(e.target.value)}
-                                    className="bg-transparent text-xs font-medium text-foreground focus:outline-none w-28 h-6 [color-scheme:dark]"
-                                />
-                            </div>
+                        <div className="flex items-center gap-1.5 h-8 bg-background border border-input rounded-lg px-3 focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary/50 transition-colors hover:border-primary/40">
+                            <input
+                                type="date"
+                                value={startDate}
+                                onChange={(e) => setStartDate(e.target.value)}
+                                className="bg-transparent text-xs font-medium text-foreground focus:outline-none w-28 [color-scheme:light]"
+                            />
+                            <span className="text-muted-foreground text-xs px-0.5">→</span>
+                            <input
+                                type="date"
+                                value={endDate}
+                                onChange={(e) => setEndDate(e.target.value)}
+                                className="bg-transparent text-xs font-medium text-foreground focus:outline-none w-28 [color-scheme:light]"
+                            />
                         </div>
 
                         {/* Clear Filters Button */}
@@ -183,9 +180,9 @@ export default function DashboardPage() {
                                     setEndDate('');
                                     setSelectedBrands([]);
                                 }}
-                                className="text-[10px] uppercase font-bold text-muted-foreground hover:text-foreground transition-colors px-2"
+                                className="h-8 px-3 text-xs font-medium text-muted-foreground hover:text-destructive hover:bg-destructive/5 border border-input rounded-lg transition-colors"
                             >
-                                Clear
+                                Clear filters
                             </button>
                         )}
                     </div>
@@ -299,22 +296,18 @@ function BrandFilter({
 
     return (
         <div className="relative brand-filter-container inline-block">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
                 <button
                     onClick={() => setIsOpen(!isOpen)}
-                    className="flex items-center gap-2 px-3 py-1.5 bg-background border border-dashed border-input rounded-md hover:border-ring/50 hover:bg-accent transition-colors text-xs font-medium text-muted-foreground group"
+                    className={`h-8 flex items-center gap-2 px-3 bg-background border rounded-lg transition-colors text-xs font-medium group ${isOpen ? 'border-primary/50 ring-2 ring-primary/20' : 'border-input hover:border-primary/40'}`}
                 >
-                    <span className="text-muted-foreground">Filter:</span>
+                    <span className="text-muted-foreground">Brands:</span>
                     <span className="text-foreground">
-                        {isAllSelected
-                            ? `All Brands`
-                            : `${selectedCount} Selected`}
+                        {isAllSelected ? `All` : `${selectedCount} selected`}
                     </span>
                     <svg
-                        className={`w-3.5 h-3.5 text-muted-foreground transition-transform group-hover:text-foreground ${isOpen ? 'rotate-180' : ''}`}
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
+                        className={`w-3 h-3 text-muted-foreground transition-transform ${isOpen ? 'rotate-180' : ''}`}
+                        fill="none" stroke="currentColor" viewBox="0 0 24 24"
                     >
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                     </svg>
@@ -323,7 +316,7 @@ function BrandFilter({
                 {!isAllSelected && (
                     <button
                         onClick={onSelectAll}
-                        className="text-xs text-muted-foreground hover:text-foreground font-medium transition-colors"
+                        className="h-8 px-2 text-xs font-medium text-primary hover:bg-primary/5 rounded-lg transition-colors"
                     >
                         Reset
                     </button>

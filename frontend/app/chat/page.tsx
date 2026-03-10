@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, Suspense } from "react";
 import { usePortfolio } from "@/contexts/PortfolioContext";
 import { VoCService } from "@/lib/api";
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -10,6 +10,7 @@ import {
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ThinkingDisplay, type ThinkingStep } from "@/components/chat/ThinkingDisplay";
+import { useSearchParams, useRouter } from "next/navigation";
 
 type Message = {
     id: string;
@@ -28,8 +29,18 @@ type Conversation = {
 };
 
 export default function ChatPage() {
+    return (
+        <Suspense fallback={null}>
+            <ChatPageInner />
+        </Suspense>
+    );
+}
+
+function ChatPageInner() {
     const { currentPortfolio } = usePortfolio();
     const selectedPortfolioId = currentPortfolio?.id;
+    const searchParams = useSearchParams();
+    const router = useRouter();
 
     const [conversations, setConversations] = useState<Conversation[]>([]);
     const [selectedConversationId, setSelectedConversationId] = useState<number | null>(null);
@@ -56,6 +67,20 @@ export default function ChatPage() {
         scrollToBottom();
     }, [messages]);
 
+    // Open a fresh chat when navigating here with ?new=1
+    useEffect(() => {
+        if (searchParams.get('new') === '1') {
+            setSelectedConversationId(null);
+            setMessages([{
+                id: "welcome",
+                role: "ai",
+                content: "Hello! I am your VoC Intelligence AI assistant. I have access to analyze all the companies, dimensions, and reviews in this portfolio. What would you like to know?",
+                timestamp: new Date()
+            }]);
+            router.replace('/chat');
+        }
+    }, [searchParams, router]);
+
     // Fetch conversations when portfolio changes
     useEffect(() => {
         if (!selectedPortfolioId) {
@@ -70,8 +95,8 @@ export default function ChatPage() {
                 const data = await VoCService.getConversations(selectedPortfolioId);
                 setConversations(data);
 
-                // If there are conversations, select the first one
-                if (data.length > 0) {
+                // If there are conversations, select the first one (unless opening a new chat)
+                if (data.length > 0 && searchParams.get('new') !== '1') {
                     setSelectedConversationId(data[0].id);
                 } else {
                     setSelectedConversationId(null);
@@ -88,6 +113,7 @@ export default function ChatPage() {
         };
 
         fetchConversations();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [selectedPortfolioId]);
 
     // Fetch messages when selected conversation changes

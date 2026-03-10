@@ -163,33 +163,35 @@ export default function ReviewsPage() {
                 )}
 
                 {/* Filters Section */}
-                <div className="bg-card border border-border rounded-xl p-4 mb-6 shadow-sm flex flex-col md:flex-row gap-4 items-center justify-between">
-                    <div className="flex flex-col sm:flex-row gap-4 w-full md:w-auto flex-wrap">
+                <div className="bg-card border border-border rounded-xl p-4 mb-6 shadow-sm">
+                    <div className="flex flex-wrap items-center gap-2">
                         {/* Search Input */}
-                        <div className="relative w-full sm:w-64">
+                        <div className="relative flex-1 min-w-[200px] max-w-xs">
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                             <input
                                 type="text"
                                 placeholder="Search reviews..."
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
-                                className="pl-9 pr-4 py-2 w-fullbg-background border border-input rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
+                                className="h-9 pl-9 pr-4 w-full bg-background border border-input rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50 transition-all"
                             />
                         </div>
+
+                        <div className="w-px h-6 bg-border hidden sm:block" />
 
                         {/* Brand Filter */}
                         <div className="relative">
                             <select
                                 value={selectedBrand}
                                 onChange={(e) => setSelectedBrand(e.target.value)}
-                                className="pl-3 pr-8 py-2 w-full sm:w-48 bg-background border border-input rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 appearance-none text-foreground"
+                                className="h-9 pl-3 pr-8 bg-background border border-input rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50 appearance-none text-foreground cursor-pointer transition-colors hover:border-primary/40 min-w-[130px]"
                             >
                                 <option value="all">All Brands</option>
                                 {availableBrands.map(b => (
                                     <option key={b} value={b}>{b}</option>
                                 ))}
                             </select>
-                            <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                            <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
                         </div>
 
                         {/* Platform Filter */}
@@ -197,44 +199,44 @@ export default function ReviewsPage() {
                             <select
                                 value={selectedPlatform}
                                 onChange={(e) => setSelectedPlatform(e.target.value)}
-                                className="pl-3 pr-8 py-2 w-full sm:w-48 bg-background border border-input rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 appearance-none text-foreground"
+                                className="h-9 pl-3 pr-8 bg-background border border-input rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50 appearance-none text-foreground cursor-pointer transition-colors hover:border-primary/40 min-w-[130px]"
                             >
                                 <option value="all">All Platforms</option>
                                 {availablePlatforms.map(p => (
                                     <option key={p} value={p}>{p}</option>
                                 ))}
                             </select>
-                            <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                            <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
                         </div>
 
                         {/* Date Range Filter */}
-                        <div className="flex items-center gap-2 w-full sm:w-auto">
+                        <div className="flex items-center gap-1.5 h-9 bg-background border border-input rounded-lg px-3 focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary/50 transition-colors hover:border-primary/40">
                             <input
                                 type="date"
                                 value={startDate}
                                 onChange={(e) => setStartDate(e.target.value)}
-                                className="px-3 py-2 bg-background border border-input rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 text-foreground"
+                                className="bg-transparent text-sm text-foreground focus:outline-none w-32 [color-scheme:light]"
                             />
-                            <span className="text-muted-foreground text-sm">to</span>
+                            <span className="text-muted-foreground text-xs">→</span>
                             <input
                                 type="date"
                                 value={endDate}
                                 onChange={(e) => setEndDate(e.target.value)}
-                                className="px-3 py-2 bg-background border border-input rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 text-foreground"
+                                className="bg-transparent text-sm text-foreground focus:outline-none w-32 [color-scheme:light]"
                             />
                         </div>
-                    </div>
 
-                    {/* Clear Filters */}
-                    {(searchQuery || selectedBrand !== "all" || selectedPlatform !== "all" || startDate || endDate) && (
-                        <button
-                            onClick={clearFilters}
-                            className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-accent rounded-md transition-colors w-full md:w-auto justify-center whitespace-nowrap"
-                        >
-                            <FilterX className="h-4 w-4" />
-                            Clear Filters
-                        </button>
-                    )}
+                        {/* Clear Filters */}
+                        {(searchQuery || selectedBrand !== "all" || selectedPlatform !== "all" || startDate || endDate) && (
+                            <button
+                                onClick={clearFilters}
+                                className="h-9 flex items-center gap-1.5 px-3 text-sm text-muted-foreground hover:text-destructive hover:bg-destructive/5 border border-input rounded-lg transition-colors whitespace-nowrap"
+                            >
+                                <FilterX className="h-3.5 w-3.5" />
+                                Clear
+                            </button>
+                        )}
+                    </div>
                 </div>
 
                 {/* Table Section */}

@@ -9,7 +9,7 @@ const navItems = [
     { name: "Dimensions", href: "/dimensions", icon: Tags },
     { name: "Reviews", href: "/reviews", icon: MessageSquare },
     { name: "Dashboard", href: "/dashboard", icon: BarChart3 },
-    { name: "AI Chat", href: "/chat", icon: Bot },
+    { name: "AI Chat", href: "/chat?new=1", icon: Bot },
     { name: "Team", href: "/team", icon: UserPlus },
 ];
 
@@ -80,7 +80,7 @@ export function Sidebar() {
                     </nav>
 
                     <div className="mt-8 px-2 pb-4">
-                        <div className="bg-white/5 backdrop-blur-sm border border-white/8 rounded-xl p-4 text-xs text-muted-foreground text-center">
+                        <div className="bg-muted border border-border rounded-xl p-4 text-xs text-muted-foreground text-center">
                             <p className="font-semibold text-foreground mb-1">HorusCX</p>
                             <p>Automated Review Analysis</p>
                         </div>

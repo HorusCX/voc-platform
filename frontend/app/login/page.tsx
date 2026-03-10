@@ -39,22 +39,22 @@ export default function LoginPage() {
 
     return (
         <div className="min-h-screen flex items-center justify-center bg-background py-12 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
-            {/* Radial glow accent */}
-            <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(60,131,246,0.1)_0%,_transparent_60%)] pointer-events-none" />
-            <div className="absolute inset-0 bg-grid-pattern pointer-events-none opacity-50" />
+            {/* Subtle blue tint at top */}
+            <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(60,131,246,0.06)_0%,_transparent_60%)] pointer-events-none" />
+            <div className="absolute inset-0 bg-grid-pattern pointer-events-none opacity-60" />
 
             <div className="max-w-md w-full space-y-6 relative z-10">
                 {/* Brand identity */}
                 <div className="text-center">
-                    <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-primary/20 border border-primary/30 mb-4">
+                    <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-primary/10 border border-primary/20 mb-4">
                         <Sparkles className="h-6 w-6 text-primary" />
                     </div>
                     <h1 className="text-2xl font-bold text-foreground">HorusCX</h1>
                     <p className="text-sm text-muted-foreground mt-1">Voice of Customer Intelligence</p>
                 </div>
 
-                {/* Glass card */}
-                <div className="bg-white/5 backdrop-blur-xl p-8 rounded-2xl border border-white/10 shadow-2xl">
+                {/* Card */}
+                <div className="bg-card p-8 rounded-2xl border border-border shadow-sm">
                     <h2 className="text-center text-2xl font-semibold tracking-tight text-foreground mb-6">
                         Sign in to VoC
                     </h2>
@@ -86,7 +86,7 @@ export default function LoginPage() {
                                     type="email"
                                     autoComplete="email"
                                     required
-                                    className="appearance-none rounded-lg relative block w-full px-3 py-2.5 border border-white/10 placeholder-muted-foreground text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary sm:text-sm bg-white/5 transition-colors"
+                                    className="appearance-none rounded-lg relative block w-full px-3 py-2.5 border border-input placeholder-muted-foreground text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary sm:text-sm bg-background transition-colors"
                                     placeholder="Email address"
                                     value={email}
                                     onChange={(e) => setEmail(e.target.value)}
@@ -102,7 +102,7 @@ export default function LoginPage() {
                                     type="password"
                                     autoComplete="current-password"
                                     required
-                                    className="appearance-none rounded-lg relative block w-full px-3 py-2.5 border border-white/10 placeholder-muted-foreground text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary sm:text-sm bg-white/5 transition-colors"
+                                    className="appearance-none rounded-lg relative block w-full px-3 py-2.5 border border-input placeholder-muted-foreground text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary sm:text-sm bg-background transition-colors"
                                     placeholder="Password"
                                     value={password}
                                     onChange={(e) => setPassword(e.target.value)}
