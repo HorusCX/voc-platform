@@ -9,7 +9,6 @@ import {
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ThinkingDisplay, type ThinkingStep } from "@/components/chat/ThinkingDisplay";
-import { ChatChart, type ChartSpec } from "@/components/chat/ChatChart";
 import { useSearchParams, useRouter } from "next/navigation";
 
 type Message = {
@@ -27,62 +26,6 @@ type Conversation = {
     updated_at: string;
     created_at: string;
 };
-
-type MessageSegment =
-    | { type: "text"; content: string }
-    | { type: "chart"; spec: ChartSpec };
-
-function parseMessageContent(content: string): MessageSegment[] {
-    const CHART_FENCE_RE = /```chart\n([\s\S]*?)\n```/g;
-    const segments: MessageSegment[] = [];
-    let lastIndex = 0;
-    let match: RegExpExecArray | null;
-
-    while ((match = CHART_FENCE_RE.exec(content)) !== null) {
-        if (match.index > lastIndex) {
-            const text = content.slice(lastIndex, match.index).trim();
-            if (text) segments.push({ type: "text", content: text });
-        }
-        try {
-            const spec = JSON.parse(match[1]) as ChartSpec;
-            if (spec.type && spec.data && spec.xKey && spec.yKeys) {
-                segments.push({ type: "chart", spec });
-            } else {
-                segments.push({ type: "text", content: match[0] });
-            }
-        } catch {
-            segments.push({ type: "text", content: match[0] });
-        }
-        lastIndex = match.index + match[0].length;
-    }
-
-    if (lastIndex < content.length) {
-        const remaining = content.slice(lastIndex).trim();
-        if (remaining) segments.push({ type: "text", content: remaining });
-    }
-    if (segments.length === 0) segments.push({ type: "text", content });
-    return segments;
-}
-
-function renderMessageContent(content: string) {
-    const segments = parseMessageContent(content);
-    if (segments.length === 1 && segments[0].type === "text") {
-        return (
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{segments[0].content}</ReactMarkdown>
-        );
-    }
-    return (
-        <>
-            {segments.map((seg, idx) =>
-                seg.type === "text" ? (
-                    <ReactMarkdown key={idx} remarkPlugins={[remarkGfm]}>{seg.content}</ReactMarkdown>
-                ) : (
-                    <ChatChart key={idx} spec={seg.spec} />
-                )
-            )}
-        </>
-    );
-}
 
 export default function ChatPage() {
     return (
@@ -252,7 +195,7 @@ function ChatPageInner() {
 
         // Add user message to UI immediately
         const userMsg: Message = {
-            id: Date.now().toString(),
+            id: `user-${Date.now()}-${Math.random().toString(36).slice(2)}`,
             role: "user",
             content: messageText,
             timestamp: new Date()
@@ -300,7 +243,7 @@ function ChatPageInner() {
 
                 (errMsg) => {
                     setMessages(prev => [...prev, {
-                        id: (Date.now() + 1).toString(),
+                        id: `ai-err-${Date.now()}-${Math.random().toString(36).slice(2)}`,
                         role: "ai",
                         content: `Sorry, I encountered an error: ${errMsg}`,
                         timestamp: new Date(),
@@ -313,7 +256,7 @@ function ChatPageInner() {
                 : 0;
 
             const aiMsg: Message = {
-                id: (Date.now() + 1).toString(),
+                id: `ai-${Date.now()}-${Math.random().toString(36).slice(2)}`,
                 role: "ai",
                 content: tokenAccumulator || "(No response received)",
                 timestamp: new Date(),
@@ -333,7 +276,7 @@ function ChatPageInner() {
             console.error("Chat Error:", error);
             const errorMessage = error instanceof Error ? error.message : "An unknown error occurred";
             setMessages(prev => [...prev, {
-                id: (Date.now() + 1).toString(),
+                id: `ai-catch-${Date.now()}-${Math.random().toString(36).slice(2)}`,
                 role: "ai",
                 content: `Sorry, I encountered an error: ${errorMessage}`,
                 timestamp: new Date(),
@@ -472,7 +415,9 @@ function ChatPageInner() {
                                             {message.role === "user" ? (
                                                 <div className="whitespace-pre-wrap">{message.content}</div>
                                             ) : (
-                                                renderMessageContent(message.content)
+                                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                                    {message.content}
+                                                </ReactMarkdown>
                                             )}
                                         </div>
                                         <span className={`text-[10px] text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity ${message.role === "user" ? "text-right mr-1" : "text-left ml-1"}`}>
@@ -504,7 +449,9 @@ function ChatPageInner() {
                                         {/* Streaming answer tokens */}
                                         {streamingContent ? (
                                             <div className="bg-card border border-border rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm prose prose-sm dark:prose-invert max-w-none break-words text-[15px] leading-relaxed">
-                                                {renderMessageContent(streamingContent)}
+                                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                                    {streamingContent}
+                                                </ReactMarkdown>
                                                 <span className="inline-block w-0.5 h-4 bg-blue-400 animate-pulse ml-0.5 align-text-bottom" />
                                             </div>
                                         ) : thinkingSteps.length === 0 ? (
