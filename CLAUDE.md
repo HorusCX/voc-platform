@@ -48,9 +48,44 @@ pip install ruff && ruff check backend
 # Build
 cd frontend && npm run build
 
-# E2E tests
-cd frontend && npx playwright test
+# E2E tests — smoke (fast, ~2 min)
+cd frontend && npx playwright test --project=smoke
+
+# E2E tests — full regression suite (~10 min)
+cd frontend && npx playwright test --project=regression
+
+# View test report after a run
+cd frontend && npx playwright show-report
+
+# Install git hooks (run once after cloning)
+bash scripts/install-hooks.sh
 ```
+
+### Pre-push hook
+
+`scripts/hooks/pre-push` runs automatically on every `git push`:
+1. **Backend-only push** → skips all checks (fast path)
+2. **Frontend changed** → runs lint, warns if new UI files lack E2E coverage, then runs smoke tests
+3. Blocks push on lint failure or failing smoke tests
+4. Bypass in emergencies: `git push --no-verify`
+
+## E2E Testing Framework
+
+A complete Playwright framework lives in `frontend/e2e/`. **Full reference: [frontend/e2e/E2E_FRAMEWORK.md](frontend/e2e/E2E_FRAMEWORK.md)**
+
+**Quick facts:**
+- 58 tests across 9 spec files in `frontend/e2e/tests/`
+- Page Object Model: one class per page in `frontend/e2e/pages/`
+- All API calls mocked — no real backend needed to run tests
+- `ApiMocks` class in `frontend/e2e/fixtures/api-mocks.fixture.ts` — add a mock method here when a new API endpoint is created
+- Mock data in `frontend/e2e/data/` — update when API response shapes change
+- CI: smoke on every PR, regression on merge to main (`.github/workflows/e2e.yml`)
+
+**When you add a new feature, always:**
+1. Add `data-testid="descriptive-name"` to every new button/input/card
+2. Add a mock method to `ApiMocks` for any new API endpoint
+3. Add test cases to the relevant spec file (or create a new `NN-feature.spec.ts`)
+4. Update mock data in `e2e/data/` if API response shapes changed
 
 ## Deployment
 

@@ -87,6 +87,7 @@ export function StepCompetitors({ initialData, onComplete }: StepCompetitorsProp
                                 <input
                                     type="text"
                                     placeholder="Company Name"
+                                    data-testid="competitor-name-input"
                                     value={item.company_name || ""}
                                     onChange={(e) => updateItem(index, "company_name", e.target.value)}
                                     className="w-full rounded border border-input px-3 py-1.5 text-sm focus:ring-1 focus:ring-ring text-foreground bg-background placeholder:text-muted-foreground"

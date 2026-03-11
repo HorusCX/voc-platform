@@ -65,6 +65,7 @@ export default function DashboardPage() {
                     initialLoadDone.current = true;
                 }
 
+                setError(null);
                 setDashboardData(stats);
             } else {
                 setError("No data found for this analysis.");
@@ -101,7 +102,7 @@ export default function DashboardPage() {
                     {/* Dashboard View Toggle + Filters Row */}
                     <div className="flex flex-wrap items-center gap-2">
                         {/* Dashboard View Toggle */}
-                        <nav className="flex items-center gap-1 bg-muted p-1 rounded-xl border border-border/60">
+                        <nav data-testid="dashboard-tabs" className="flex items-center gap-1 bg-muted p-1 rounded-xl border border-border/60">
                             <TabButton
                                 active={activeTab === 'executive'}
                                 onClick={() => setActiveTab('executive')}

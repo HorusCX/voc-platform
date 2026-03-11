@@ -73,7 +73,7 @@ export function TeamMembersList() {
                 </div>
                 <div className="grid gap-3">
                     {members.map((member) => (
-                        <div key={member.id} className="flex items-center justify-between p-4 bg-background border border-border rounded-xl">
+                        <div key={member.id} data-testid="member-row" className="flex items-center justify-between p-4 bg-background border border-border rounded-xl">
                             <div className="flex items-center gap-3">
                                 <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary">
                                     <User className="h-5 w-5" />
@@ -104,7 +104,7 @@ export function TeamMembersList() {
                     </div>
                     <div className="grid gap-3">
                         {invitations.map((invitation) => (
-                            <div key={invitation.id} className="flex items-center justify-between p-4 bg-muted/30 border border-border border-dashed rounded-xl">
+                            <div key={invitation.id} data-testid="invitation-row" className="flex items-center justify-between p-4 bg-muted/30 border border-border border-dashed rounded-xl">
                                 <div className="flex items-center gap-3">
                                     <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center text-muted-foreground">
                                         <Mail className="h-5 w-5" />

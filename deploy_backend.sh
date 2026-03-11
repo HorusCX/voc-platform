@@ -25,6 +25,19 @@ NC='\033[0m'
 echo -e "${GREEN}🚀 Starting Full Backend Deployment...${NC}"
 
 # ============================================
+# STEP 0: Sync build_ctx with latest code
+# ============================================
+echo -e "\n${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${GREEN}🔄 Step 0: Syncing build_ctx with latest code${NC}"
+echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+
+echo -e "\n${YELLOW}Copying backend/ → build_ctx/backend/ ...${NC}"
+cp -r backend/ build_ctx/backend/
+echo -e "\n${YELLOW}Copying requirements.txt → build_ctx/requirements.txt ...${NC}"
+cp requirements.txt build_ctx/requirements.txt
+echo -e "${GREEN}✅ build_ctx synced${NC}"
+
+# ============================================
 # STEP 1: Build and Push Docker Image
 # ============================================
 echo -e "\n${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -55,11 +68,11 @@ echo -e "${GREEN}📝 Step 2: Registering Task Definitions${NC}"
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 
 # Load Environment Variables
-echo -e "\n${GREEN}🔑 Loading Environment Variables from .env...${NC}"
-if [ -f .deploy_env ]; then
-    export $(grep -v '^#' .deploy_env | xargs)
+echo -e "\n${GREEN}🔑 Loading Environment Variables from backend/.env...${NC}"
+if [ -f backend/.env ]; then
+    export $(grep -v '^#' backend/.env | xargs)
 else
-    echo "❌ .env file not found!"
+    echo "❌ backend/.env file not found!"
     exit 1
 fi
 

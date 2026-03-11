@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+# Pre-push hook: lint + E2E smoke tests for frontend changes
+# Bypass with: git push --no-verify
+
+set -euo pipefail
+
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+GREEN='\033[0;32m'
+BOLD='\033[1m'
+RESET='\033[0m'
+
+FRONTEND_DIR="$(git rev-parse --show-toplevel)/frontend"
+
+# ── Detect changed files ───────────────────────────────────────────────────────
+# Compare what's about to be pushed against the remote (or main if no upstream)
+if git rev-parse @{u} &>/dev/null 2>&1; then
+    CHANGED=$(git diff --name-only @{u} HEAD)
+else
+    # No upstream yet — compare against main branch
+    CHANGED=$(git diff --name-only main HEAD 2>/dev/null || git diff --name-only HEAD~1 HEAD 2>/dev/null || true)
+fi
+
+FRONTEND_CHANGED=$(echo "$CHANGED" | grep -E '^frontend/' || true)
+BACKEND_CHANGED=$(echo "$CHANGED" | grep -E '^(backend/|requirements\.txt|build_ctx/)' || true)
+NEW_UI_FILES=$(echo "$CHANGED" | grep -E '^frontend/(app|components)/.*\.tsx$' || true)
+E2E_CHANGED=$(echo "$CHANGED" | grep -E '^frontend/e2e/tests/.*\.spec\.ts$' || true)
+
+# ── Fast path: backend-only push ──────────────────────────────────────────────
+if [[ -z "$FRONTEND_CHANGED" ]]; then
+    echo -e "${GREEN}✓ Backend-only push — skipping frontend checks${RESET}"
+    exit 0
+fi
+
+echo -e "${BOLD}Pre-push checks (frontend changes detected)${RESET}"
+echo "────────────────────────────────────────────"
+
+FAILED=0
+
+# ── Step 1: Lint ──────────────────────────────────────────────────────────────
+echo -e "\n${BOLD}[1/3] Running lint...${RESET}"
+if (cd "$FRONTEND_DIR" && npm run lint --silent 2>&1); then
+    echo -e "${GREEN}✓ Lint passed${RESET}"
+else
+    echo -e "${RED}✗ Lint failed — fix errors before pushing${RESET}"
+    echo -e "  Run: ${BOLD}cd frontend && npm run lint${RESET}"
+    FAILED=1
+fi
+
+# ── Step 2: New feature coverage warning ──────────────────────────────────────
+echo -e "\n${BOLD}[2/3] Checking E2E coverage for new UI files...${RESET}"
+if [[ -n "$NEW_UI_FILES" && -z "$E2E_CHANGED" ]]; then
+    echo -e "${YELLOW}⚠ Warning: new/modified UI files detected without E2E test updates:${RESET}"
+    echo "$NEW_UI_FILES" | sed 's/^/    /'
+    echo -e "${YELLOW}  Consider adding/updating tests in frontend/e2e/tests/ before pushing.${RESET}"
+    echo -e "${YELLOW}  Continuing anyway — push with ${BOLD}--no-verify${RESET}${YELLOW} to suppress this check.${RESET}"
+    echo ""
+    # Non-blocking — just a warning
+elif [[ -n "$NEW_UI_FILES" && -n "$E2E_CHANGED" ]]; then
+    echo -e "${GREEN}✓ E2E tests updated alongside UI changes${RESET}"
+else
+    echo -e "${GREEN}✓ No new UI files requiring E2E coverage${RESET}"
+fi
+
+# ── Step 3: Smoke E2E tests ───────────────────────────────────────────────────
+echo -e "\n${BOLD}[3/3] Running smoke E2E tests...${RESET}"
+echo -e "  (tests: 01-auth, 02-companies — ~2 min)"
+if (cd "$FRONTEND_DIR" && npx playwright test --project=smoke 2>&1); then
+    echo -e "${GREEN}✓ Smoke tests passed${RESET}"
+else
+    echo -e "${RED}✗ Smoke tests failed — push blocked${RESET}"
+    echo -e "  Run: ${BOLD}cd frontend && npx playwright test --project=smoke${RESET}"
+    echo -e "  View report: ${BOLD}cd frontend && npx playwright show-report${RESET}"
+    echo -e "  To bypass (emergency only): ${BOLD}git push --no-verify${RESET}"
+    FAILED=1
+fi
+
+# ── Result ────────────────────────────────────────────────────────────────────
+echo ""
+echo "────────────────────────────────────────────"
+if [[ $FAILED -ne 0 ]]; then
+    echo -e "${RED}${BOLD}Pre-push checks FAILED — push blocked.${RESET}"
+    exit 1
+else
+    echo -e "${GREEN}${BOLD}All checks passed — pushing to GitHub.${RESET}"
+    exit 0
+fi

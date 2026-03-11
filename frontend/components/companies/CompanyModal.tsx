@@ -99,11 +99,11 @@ export function CompanyModal({ isOpen, onClose, onSave, initialData }: CompanyMo
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm animate-in fade-in duration-300">
+        <div data-testid="company-modal" className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm animate-in fade-in duration-300">
             <div className="bg-white w-full max-w-2xl rounded-2xl shadow-xl border border-zinc-200 flex flex-col max-h-[90vh] overflow-hidden">
                 <div className="flex justify-between items-center px-8 py-6 border-b border-zinc-200">
                     <div>
-                        <h2 className="text-2xl font-bold tracking-tight text-foreground">
+                        <h2 data-testid="company-modal-title" className="text-2xl font-bold tracking-tight text-foreground">
                             {initialData ? "Refine Company" : "Connect Company"}
                         </h2>
                         <p className="text-sm text-muted-foreground font-medium">
@@ -276,6 +276,7 @@ export function CompanyModal({ isOpen, onClose, onSave, initialData }: CompanyMo
                         type="submit"
                         form="company-form"
                         disabled={loading}
+                        data-testid="company-modal-save"
                         className="px-8 py-2.5 text-sm font-bold bg-primary text-primary-foreground hover:bg-primary/90 rounded-full shadow-md transition-all hover:scale-[1.02] active:scale-95 flex items-center gap-2"
                     >
                         {loading && <Loader2 className="w-4 h-4 animate-spin" />}

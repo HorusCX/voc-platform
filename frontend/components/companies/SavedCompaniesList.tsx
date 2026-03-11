@@ -239,6 +239,7 @@ export function SavedCompaniesList({ onStartNew }: SavedCompaniesListProps) {
                         </button>
                         <button
                             onClick={handleAdd}
+                            data-testid="add-company-btn"
                             className="inline-flex items-center gap-2 bg-primary hover:bg-primary/90 text-primary-foreground font-semibold py-2 px-4 rounded-full shadow-sm transition-all hover:-translate-y-0.5 text-sm"
                         >
                             <Plus className="h-4 w-4" />
@@ -252,6 +253,7 @@ export function SavedCompaniesList({ onStartNew }: SavedCompaniesListProps) {
                 {companies.map((company, idx) => (
                     <div
                         key={idx}
+                        data-testid="company-card"
                         onClick={() => handleEdit(company)}
                         className="group bg-card border border-border rounded-xl p-5 shadow-sm hover:shadow-md hover:shadow-primary/5 hover:border-primary/40 hover:-translate-y-0.5 transition-all duration-200 flex flex-col h-full relative overflow-hidden cursor-pointer"
                     >
@@ -297,6 +299,7 @@ export function SavedCompaniesList({ onStartNew }: SavedCompaniesListProps) {
                                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 ml-2">
                                     <button
                                         onClick={(e) => { e.stopPropagation(); handleEdit(company); }}
+                                        data-testid="company-edit-btn"
                                         className="p-1.5 text-muted-foreground hover:text-primary hover:bg-muted rounded-md transition-colors"
                                         title="Edit Company"
                                     >
@@ -304,6 +307,7 @@ export function SavedCompaniesList({ onStartNew }: SavedCompaniesListProps) {
                                     </button>
                                     <button
                                         onClick={(e) => { e.stopPropagation(); handleDelete(company.id); }}
+                                        data-testid="company-delete-btn"
                                         className="p-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-md transition-colors"
                                         title="Delete Company"
                                     >

@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { VoCService } from "@/lib/api";
 import { Card } from "../ui/Card";
 import { Loader2, CheckCircle, Send, Trash2, Plus } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { usePortfolio } from "@/contexts/PortfolioContext";
 
 interface SuccessViewProps {
@@ -229,7 +228,7 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
 
     if (status === 'polling') {
         return (
-            <Card className="max-w-xl mx-auto text-center py-12">
+            <Card data-testid="scraping-progress" className="max-w-xl mx-auto text-center py-12">
                 <Loader2 className="h-12 w-12 text-calo-primary animate-spin mx-auto mb-4" />
                 <h2 className="text-xl font-semibold mb-2">Scraping in Progress...</h2>
                 <div className="bg-slate-50 p-4 rounded-md border border-slate-100 max-w-sm mx-auto">
@@ -283,7 +282,7 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
             : 0;
 
         return (
-            <Card className="max-w-xl mx-auto text-center py-12">
+            <Card data-testid="analysis-progress" className="max-w-xl mx-auto text-center py-12">
                 <div className="mb-6 relative w-20 h-20 mx-auto">
                     <Loader2 className="h-20 w-20 text-indigo-100 animate-spin absolute" />
                     <Loader2 className="h-20 w-20 text-indigo-600 animate-spin absolute top-0 left-0 opacity-20" />
@@ -330,23 +329,59 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
                 <h2 className="text-2xl font-bold text-slate-800 mb-2">Scraping Complete!</h2>
                 <p className="text-slate-500 mb-6">Your data has been successfully collected.</p>
 
-                {/* SUMMARY TEXT */}
-                {data?.summary && (
-                    <div className="bg-slate-50 rounded-lg p-5 text-left text-sm border border-slate-200 mb-6 shadow-inner">
-                        <h3 className="font-bold text-slate-700 mb-3 uppercase tracking-wider text-xs">Collection Summary</h3>
-                        <div className="space-y-1 font-mono text-slate-600">
-                            {data.summary.split('\n').map((line: string, i: number) => (
-                                <div key={i} className={cn(
-                                    "py-1",
-                                    line.trim() === "" ? "h-2" : "",
-                                    line.startsWith("    -") ? "pl-6 text-xs text-slate-500" : "font-semibold text-slate-800 border-b border-slate-100 pb-1 mt-2 first:mt-0"
-                                )}>
-                                    {line}
-                                </div>
-                            ))}
+                {/* SUMMARY — per-brand review count cards */}
+                {data?.summary && (() => {
+                    // Parse summary lines like:
+                    // "BrandName - Playstore: 100 - App Store: 50 - Google Maps: 30 - Trustpilot: 20"
+                    const brandStats = data.summary.split('\n')
+                        .filter((line: string) => line.trim() && !line.startsWith('    -'))
+                        .map((line: string) => {
+                            const playMatch = line.match(/Playstore:\s*(\d+)/i);
+                            const appMatch = line.match(/App Store:\s*(\d+)/i);
+                            const mapsMatch = line.match(/Google Maps:\s*(\d+)/i);
+                            const tpMatch = line.match(/Trustpilot:\s*(\d+)/i);
+                            const play = parseInt(playMatch?.[1] ?? '0');
+                            const app = parseInt(appMatch?.[1] ?? '0');
+                            const maps = parseInt(mapsMatch?.[1] ?? '0');
+                            const tp = parseInt(tpMatch?.[1] ?? '0');
+                            const total = play + app + maps + tp;
+                            // Brand name is everything before the first " - "
+                            const name = line.split(' - ')[0].trim();
+                            return { name, play, app, maps, tp, total };
+                        })
+                        .filter(b => b.name);
+
+                    if (!brandStats.length) return null;
+
+                    const grandTotal = brandStats.reduce((s, b) => s + b.total, 0);
+
+                    return (
+                        <div className="mb-6 text-left">
+                            <div className="flex items-center justify-between mb-3">
+                                <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Reviews Collected</h3>
+                                <span className="text-xs font-semibold text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full">
+                                    {grandTotal.toLocaleString()} total
+                                </span>
+                            </div>
+                            <div className="space-y-2">
+                                {brandStats.map((b) => (
+                                    <div key={b.name} className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 flex items-center justify-between gap-4">
+                                        <span className="font-semibold text-slate-800 truncate text-sm">{b.name}</span>
+                                        <div className="flex items-center gap-3 shrink-0">
+                                            {b.play > 0 && <span className="text-xs text-slate-500"><span className="font-medium text-slate-700">{b.play.toLocaleString()}</span> Play</span>}
+                                            {b.app > 0 && <span className="text-xs text-slate-500"><span className="font-medium text-slate-700">{b.app.toLocaleString()}</span> App Store</span>}
+                                            {b.maps > 0 && <span className="text-xs text-slate-500"><span className="font-medium text-slate-700">{b.maps.toLocaleString()}</span> Maps</span>}
+                                            {b.tp > 0 && <span className="text-xs text-slate-500"><span className="font-medium text-slate-700">{b.tp.toLocaleString()}</span> Trustpilot</span>}
+                                            <span className="text-sm font-bold text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full ml-1">
+                                                {b.total.toLocaleString()}
+                                            </span>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
                         </div>
-                    </div>
-                )}
+                    );
+                })()}
 
                 <div className="flex flex-col sm:flex-row gap-3 justify-center">
 
@@ -356,6 +391,7 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
                         <button
                             onClick={handleProcessData}
                             disabled={submittingDims}
+                            data-testid="generate-insights-btn"
                             className="inline-flex items-center justify-center gap-2 bg-primary hover:bg-primary/90 text-primary-foreground font-semibold py-4 px-6 rounded-full shadow-lg hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed transform hover:-translate-y-0.5"
                         >
                             {submittingDims ? <Loader2 className="animate-spin" /> : "Analyze Reviews & Generate Insights ⚡"}
@@ -369,11 +405,12 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
                 <Card title="Dimensions Analysis" className="animate-in fade-in slide-in-from-bottom-8 duration-700">
                     <div className="space-y-6">
                         {dimensions.map((dim, idx) => (
-                            <div key={idx} className="p-4 bg-calo-background-secondary border border-calo-border rounded-lg relative">
+                            <div key={idx} data-testid="dimension-row" className="p-4 bg-calo-background-secondary border border-calo-border rounded-lg relative">
                                 <div className="absolute top-2 right-2 flex items-center gap-2">
                                     <span className="text-xs font-bold text-calo-text-secondary border border-slate-200 px-2 py-0.5 rounded bg-slate-50">#{idx + 1}</span>
                                     <button
                                         onClick={() => removeDimension(idx)}
+                                        data-testid="delete-dimension-btn"
                                         className="text-red-400 hover:text-red-700 hover:bg-red-50 p-1.5 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-red-200"
                                         title="Remove Dimension"
                                     >
@@ -384,6 +421,7 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
                                     <div>
                                         <label className="text-xs font-bold uppercase text-calo-text-secondary">Dimension</label>
                                         <input
+                                            data-testid="dimension-name-input"
                                             className="w-full mt-1 px-3 py-2 border border-calo-border rounded text-sm bg-white text-slate-800 focus:ring-1 focus:ring-calo-primary"
                                             value={dim.dimension as string}
                                             onChange={(e) => updateDimension(idx, 'dimension', e.target.value)}
@@ -412,6 +450,7 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
 
                         <button
                             onClick={addNewDimension}
+                            data-testid="add-dimension-btn"
                             className="w-full border-2 border-dashed border-calo-border hover:border-calo-primary/50 hover:bg-calo-background-secondary text-calo-text-secondary font-semibold py-4 px-6 rounded-lg flex items-center justify-center gap-2 transition-all hover:text-calo-primary"
                         >
                             <Plus className="h-5 w-5" /> Add New Dimension
@@ -420,6 +459,7 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
                         <button
                             onClick={handleSubmitDimensions}
                             disabled={submittingDims}
+                            data-testid="start-analysis-btn"
                             className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold py-4 px-6 rounded-full flex items-center justify-center gap-2 shadow-lg hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed transform hover:-translate-y-0.5"
                         >
                             {submittingDims ? <Loader2 className="animate-spin" /> : <><Send className="h-4 w-4" /> Start Analysis & Generate Dashboard 🚀</>}

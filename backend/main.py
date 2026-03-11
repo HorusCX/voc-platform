@@ -41,7 +41,7 @@ from auth import (
 )
 from services.email_service import send_invitation_email
 from sqlalchemy.orm import Session
-from sqlalchemy import or_, asc, desc, cast, Text, select, func, case, extract
+from sqlalchemy import or_, and_, asc, desc, cast, Text, select, func, case, extract
 
 
 
@@ -297,19 +297,24 @@ def task_final_analysis(job_id: str, file_key: str, dimensions: List[dict], port
     """
     Background task to perform AI analysis on reviews.
     """
-    if not OPENAI_API_KEY:
-        logger.error("❌ OpenAI API Key missing")
-        update_job_status(job_id, "error", "Server configuration error: OpenAI Key missing", task_type="analysis")
+    if not GEMINI_API_KEY:
+        logger.error("❌ Gemini API Key missing")
+        update_job_status(job_id, "error", "Server configuration error: Gemini Key missing", task_type="analysis")
         return
 
     try:
         update_job_status(job_id, "running", "Starting AI analysis...", "analysis")
-        
+
         # Call the analysis service
-        analyze_reviews(file_key, dimensions, OPENAI_API_KEY, portfolio_id, job_id)
-        
-        update_job_status(job_id, "completed", "Analysis finished.", "analysis")
-        
+        result = analyze_reviews(file_key, dimensions, GEMINI_API_KEY, portfolio_id, job_id)
+
+        # analyze_reviews returns {"error": ...} on failure instead of raising
+        if isinstance(result, dict) and result.get("error"):
+            logger.error(f"❌ Analysis Task {job_id} failed: {result['error']}")
+            update_job_status(job_id, "failed", result["error"], "analysis")
+        else:
+            update_job_status(job_id, "completed", "Analysis finished.", "analysis")
+
     except Exception as e:
         logger.error(f"❌ Analysis Task {job_id} failed: {e}")
         update_job_status(job_id, "failed", str(e), "analysis")
@@ -352,8 +357,14 @@ def task_scrap_reviews(job_id: str, brands: List[dict], portfolio_id: int):
         # Call the scraper service
         results = run_scraper_service(job_id, brands, progress_callback=None, portfolio_id=portfolio_id)
         
-        # update_job_status will be called within run_scraper_service too
-        update_job_status(job_id, "completed", "Scraping finished. Data available.", "scraping", brands=results)
+        # Spread key fields to the top level so the frontend can extract them directly
+        update_job_status(
+            job_id, "completed", "Scraping finished. Data available.", "scraping",
+            s3_key=results.get("s3_key"),
+            summary=results.get("summary"),
+            brand_names=results.get("brand_names"),
+            sample_reviews=results.get("sample_reviews"),
+        )
         
     except Exception as e:
         logger.error(f"❌ Scraping Task {job_id} failed: {e}")
@@ -429,10 +440,7 @@ def task_reanalyze_all(portfolio_id: int):
             logger.warning(f"No dimensions found for portfolio {portfolio_id}. Cannot re-analyze.")
             return
 
-        # 2. Get all distinct job_ids for this portfolio's reviews
-        job_ids = db_session.query(Review.job_id).filter(Review.portfolio_id == portfolio_id).distinct().all()
-        
-        # 3. Clear existing analysis data (set to NULL)
+        # 2. Clear existing analysis data (set to NULL)
         db_session.query(Review).filter(Review.portfolio_id == portfolio_id).update({
             "sentiment": None,
             "emotion": None,
@@ -442,23 +450,14 @@ def task_reanalyze_all(portfolio_id: int):
         }, synchronize_session=False)
         db_session.commit()
         logger.info(f"Cleared existing analysis data for portfolio {portfolio_id}")
-        
-        # 4. Trigger re-analysis for each job_id sequentially
-        for (job_id,) in job_ids:
-            # Clear S3 checkpoints for this analysis job
-            from services.analyze_reviews import get_checkpoint_key
-            s3_client = boto3.client('s3', region_name=AWS_REGION)
-            analysis_job_id = f"analysis_{job_id}"
-            try:
-                s3_client.delete_object(Bucket=S3_BUCKET_NAME, Key=get_checkpoint_key(analysis_job_id))
-            except Exception:
-                pass # Checkpoint might not exist, ignore error
-            
-            logger.info(f"Triggering re-analysis for job: {job_id}")
-            # file_path=None because analyze_reviews fetches from DB based on job_id
-            task_final_analysis(job_id=analysis_job_id, file_key=None, dimensions=dimensions_list, portfolio_id=portfolio_id)
-            
-        logger.info(f"✅ Re-analysis triggered for {len(job_ids)} jobs in portfolio {portfolio_id}")
+
+        # 3. Trigger a single re-analysis for the whole portfolio
+        import time as _time
+        analysis_job_id = f"reanalyze_{portfolio_id}_{int(_time.time())}"
+        logger.info(f"Triggering re-analysis (analysis_job_id={analysis_job_id})")
+        task_final_analysis(job_id=analysis_job_id, file_key=None, dimensions=dimensions_list, portfolio_id=portfolio_id)
+
+        logger.info(f"✅ Re-analysis completed for portfolio {portfolio_id}")
 
     except Exception as e:
         logger.error(f"Error preparing re-analysis for portfolio {portfolio_id}: {e}")
@@ -574,6 +573,7 @@ class CompanyCreateRequest(BaseModel):
     google_maps_links: Optional[List[Union[str, dict]]] = []
     trustpilot_link: Optional[str] = None
     logo_url: Optional[str] = None
+    arabic_name: Optional[str] = None
     is_main: Optional[bool] = False
     portfolio_id: Optional[int] = None
 
@@ -586,6 +586,7 @@ class CompanyUpdateRequest(BaseModel):
     google_maps_links: Optional[List[Union[str, dict]]] = None
     trustpilot_link: Optional[str] = None
     logo_url: Optional[str] = None
+    arabic_name: Optional[str] = None
     is_main: Optional[bool] = None
     portfolio_id: Optional[int] = None
 
@@ -1015,16 +1016,24 @@ async def portfolio_chat_stream(
     # 5. SSE generator
     async def sse_generator():
         token_parts: list = []
+        elapsed_seconds = 0
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             while True:
                 try:
                     evt = await loop.run_in_executor(
-                        None, lambda: event_queue.get(timeout=120)
+                        None, lambda: event_queue.get(timeout=1)
                     )
+                    elapsed_seconds = 0  # reset on activity
                 except stdlib_queue.Empty:
-                    yield 'data: {"type": "error", "content": "Request timed out"}\n\n'
-                    break
+                    elapsed_seconds += 1
+                    if elapsed_seconds >= 120:
+                        yield 'data: {"type": "error", "content": "Request timed out"}\n\n'
+                        break
+                    # Heartbeat comment — forces network buffers to flush so the
+                    # browser sees tool_call / tool_result events as they happen.
+                    yield ": heartbeat\n\n"
+                    continue
 
                 if evt is None:  # sentinel
                     break
@@ -1267,7 +1276,13 @@ async def api_get_companies(portfolio_id: int, db: Session = Depends(get_db), cu
         stats = db.query(
             func.count(Review.id).label("review_count"),
             func.avg(Review.rating).label("avg_rating")
-        ).filter(Review.company_id == c.id).one()
+        ).filter(
+            Review.portfolio_id == portfolio_id,
+            or_(
+                Review.company_id == c.id,
+                and_(Review.company_id == None, func.lower(Review.brand) == func.lower(c.company_name))
+            )
+        ).one()
         d["review_count"] = stats.review_count or 0
         d["avg_rating"] = round(float(stats.avg_rating), 1) if stats.avg_rating else None
         result.append(d)
@@ -1294,6 +1309,7 @@ async def api_create_company(request: CompanyCreateRequest, db: Session = Depend
         google_maps_links=request.google_maps_links,
         trustpilot_link=request.trustpilot_link,
         logo_url=request.logo_url,
+        arabic_name=request.arabic_name,
         portfolio_id=request.portfolio_id,
         is_main=request.is_main
     )
@@ -1748,7 +1764,8 @@ async def get_user_reviews_paginated(
     query = db.query(Review).filter(Review.portfolio_id == portfolio_id)
     
     if brand and brand != "all":
-        query = query.filter(Review.brand == brand)
+        brands_filter = [b.strip() for b in brand.split(",")]
+        query = query.filter(Review.brand.in_(brands_filter))
     if platform and platform != "all":
         query = query.filter(Review.platform.ilike(f"%{platform}%"))
     if start_date:
@@ -2137,7 +2154,7 @@ async def api_scrapped_data2(request: dict, current_user: User = Depends(get_cur
     try:
         if sample_reviews:
             logger.info(f"Generating dimensions from {len(sample_reviews)} sample reviews provided by frontend")
-            dimensions = generate_dimensions(sample_reviews, OPENAI_API_KEY)
+            dimensions = generate_dimensions(sample_reviews, GEMINI_API_KEY)
             
             # Save newly generated dimensions for the portfolio
             for dim in dimensions:
@@ -2164,11 +2181,19 @@ async def api_scrapped_data2(request: dict, current_user: User = Depends(get_cur
             Review.job_id == job_id,
             Review.portfolio_id == portfolio_id
         ).limit(10).all()
+
+        # Wider fallback: any reviews for this portfolio (in case job_id mismatch)
+        if not db_reviews:
+            db_reviews = db_session.query(Review).filter(
+                Review.portfolio_id == portfolio_id
+            ).limit(10).all()
+            if db_reviews:
+                logger.info(f"DB fallback: using {len(db_reviews)} portfolio-level reviews (job_id {job_id} had none)")
         
         if db_reviews:
             logger.info(f"Generating dimensions from {len(db_reviews)} reviews in DB for job {job_id}")
             sample = [r.to_dict() for r in db_reviews]
-            dimensions = generate_dimensions(sample, OPENAI_API_KEY)
+            dimensions = generate_dimensions(sample, GEMINI_API_KEY)
             
             # Save newly generated dimensions for the portfolio
             for dim in dimensions:
@@ -2203,7 +2228,7 @@ async def api_scrapped_data2(request: dict, current_user: User = Depends(get_cur
              if df is not None:
                  sample_df = df.sample(n=min(10, len(df))).fillna('').replace([float('inf'), float('-inf')], '')
                  sample = sample_df.to_dict(orient='records')
-                 dimensions = generate_dimensions(sample, OPENAI_API_KEY)
+                 dimensions = generate_dimensions(sample, GEMINI_API_KEY)
                  
                  for dim in dimensions:
                      new_dim = Dimension(

@@ -10,7 +10,7 @@ Replaces the single-pass SQL chain with a proper tool-calling agent that can:
 import os
 import logging
 import queue
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy import create_engine, event
 from langchain_openai import ChatOpenAI
@@ -45,8 +45,17 @@ class ChatStreamingCallback(BaseCallbackHandler):
     def _emit(self, event: dict) -> None:
         self._q.put(event)
 
+    def on_tool_start(self, serialized: Dict[str, Any], input_str: str, **kwargs: Any) -> None:
+        """Fires when any tool starts — works with create_tool_calling_agent."""
+        tool_name = serialized.get("name", kwargs.get("name", "unknown"))
+        self._emit({
+            "type": "tool_call",
+            "tool": tool_name,
+            "input": input_str[:500],
+        })
+
     def on_agent_action(self, action: AgentAction, **kwargs: Any) -> None:
-        """Fires when the LLM decides to call a tool."""
+        """Fires for older ReAct-style agents (fallback, may not fire for tool-calling agents)."""
         self._emit({
             "type": "tool_call",
             "tool": action.tool,
@@ -148,6 +157,13 @@ Do NOT attempt to answer, rephrase, or partially answer out-of-scope questions.
 - For company comparisons, be objective and back claims with data
 - When you cannot answer something, say so clearly and explain why
 - Respond in the same language the user writes in
+- Brand name resolution: users may give partial brand names (e.g. "Sixt" instead of "Sixt Saudi Arabia"). Always use wildcard ILIKE ('%name%') when matching brand/company names, and prefer filtering via the companies table JOIN (JOIN companies c ON reviews.company_id = c.id WHERE c.company_name ILIKE '%partial%') for accurate results
+
+## Response formatting:
+- Use `###` headers for each brand/company name when covering multiple brands (e.g. `### Calo`)
+- Always leave a blank line between each brand section
+- Use bullet points (`-`) for properties within a section
+- Never run multiple brand sections together without vertical whitespace
 
 Row Level Security is active — all data is automatically restricted to the current portfolio. Never add portfolio_id filters manually."""
 

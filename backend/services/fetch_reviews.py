@@ -258,9 +258,7 @@ def save_reviews_to_db(job_id: str, df: pd.DataFrame, portfolio_id: int):
             
         if reviews_data:
             stmt = insert(Review).values(reviews_data)
-            stmt = stmt.on_conflict_do_nothing(
-                constraint='uq_review_text_user_date_platform'
-            )
+            stmt = stmt.on_conflict_do_nothing()
             db.execute(stmt)
             db.commit()
             logger.info(f"💾 Saved {len(reviews_data)} reviews to database for job {job_id}")
@@ -558,7 +556,6 @@ def run_scraper_service(job_id, brands_list, portfolio_id, progress_callback=Non
             
         result_metadata.update({
             "status": "completed",
-            "message": "Scraping successful",
             "message": "Scraping successful",
             "file_path": file_path,
             "s3_key": s3_url, # s3_url variable now holds the key from upload_to_s3 

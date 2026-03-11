@@ -56,13 +56,15 @@ Use this for: review counts by company/platform/rating, sentiment distribution p
 
 Tables available:
 - reviews: id, brand, text, rating, date, platform, sentiment, emotion, confidence, topics (JSON), source_user, analyzed_at
-- companies: id, company_name, website, is_main, portfolio_id
+- companies: id, company_name, arabic_name, website, is_main, portfolio_id
 - dimensions: id, name, description, keywords (JSON), portfolio_id
 
 Key rules:
 - Do NOT add WHERE portfolio_id = X — Row Level Security restricts data automatically
-- reviews.company_id is often NULL; join to companies via: reviews.brand ILIKE companies.company_name
-- Group by reviews.brand directly, not company_id
+- reviews.company_id is now populated for all reviews; prefer joining via: JOIN companies c ON reviews.company_id = c.id
+- When filtering by company/brand name from user input, ALWAYS use wildcard matching on BOTH name columns: (c.company_name ILIKE '%name%' OR c.arabic_name ILIKE '%name%') — this handles partial English names AND Arabic brand names (e.g. "بدجت" matches the arabic_name of Budget)
+- Group by c.company_name or reviews.brand
+- Fallback for any legacy rows: also add OR reviews.brand ILIKE '%name%' if needed
 - To filter topics JSON: use topics::jsonb @> '[{"dimension": "Performance", "mentioned": true}]'
 - For full-text search in review text: use text ILIKE '%keyword%'""",
     )
@@ -274,108 +276,3 @@ Returns the 20 most similar reviews with a similarity score. Use synthesize_revi
     except Exception as e:
         logger.warning(f"semantic_search tool unavailable: {e}")
         return None
-
-
-def make_chart_tool(readonly_engine, portfolio_id: int):
-    """Creates a chart generation tool that runs SQL and returns a ChartSpec JSON string."""
-
-    def generate_chart(
-        chart_type: str,
-        sql_query: str,
-        title: str,
-        x_column: str,
-        y_columns: str,
-    ) -> str:
-        """Run a SQL query and return a chart specification JSON string."""
-        allowed_types = {"bar", "line", "pie", "area"}
-        if chart_type not in allowed_types:
-            return f"Error: chart_type must be one of {sorted(allowed_types)}. Got: '{chart_type}'"
-
-        clean_query = sql_query.replace("```sql", "").replace("```", "").strip()
-        forbidden_keywords = ["INSERT", "UPDATE", "DELETE", "DROP", "CREATE", "ALTER", "TRUNCATE", "GRANT", "REVOKE"]
-        upper_query = clean_query.upper()
-        for kw in forbidden_keywords:
-            if kw in upper_query:
-                return f"Error: {kw} operations are not permitted. Only SELECT queries are allowed."
-
-        try:
-            y_cols = json.loads(y_columns) if isinstance(y_columns, str) else y_columns
-            if not isinstance(y_cols, list) or not y_cols:
-                return "Error: y_columns must be a non-empty JSON array of {key, label, color?} objects."
-        except json.JSONDecodeError as e:
-            return f"Error: y_columns must be a valid JSON array. {e}"
-
-        try:
-            with readonly_engine.connect() as conn:
-                conn.execute(text(f"SET LOCAL app.current_portfolio_id = '{portfolio_id}';"))
-                result = conn.execute(text(clean_query))
-                rows = result.fetchall()
-                columns = list(result.keys())
-        except Exception as e:
-            logger.error(f"generate_chart SQL error: {e}")
-            return f"SQL error: {e}"
-
-        if not rows:
-            return "Query returned no results — cannot generate chart."
-
-        if x_column not in columns:
-            return f"Error: x_column '{x_column}' not found in query results. Available columns: {columns}"
-
-        data = []
-        for row in rows[:100]:
-            row_dict = dict(zip(columns, row))
-            point: dict = {}
-            for k, v in row_dict.items():
-                if hasattr(v, "isoformat"):
-                    point[k] = v.isoformat()
-                elif isinstance(v, float):
-                    point[k] = v
-                else:
-                    try:
-                        point[k] = float(v) if v is not None else 0
-                    except (TypeError, ValueError):
-                        point[k] = str(v) if v is not None else ""
-            data.append(point)
-
-        chart_spec = {
-            "type": chart_type,
-            "title": title,
-            "data": data,
-            "xKey": x_column,
-            "yKeys": y_cols,
-        }
-        return json.dumps(chart_spec, ensure_ascii=False)
-
-    return StructuredTool.from_function(
-        func=generate_chart,
-        name="generate_chart",
-        description="""Generate a chart from a SQL query result and return the chart specification JSON.
-
-Use this when the user asks to "draw", "plot", "show a chart/graph", "visualize", or requests a bar/line/pie/area chart.
-
-Parameters:
-- chart_type: One of "bar", "line", "pie", "area"
-- sql_query: A SELECT query returning the x_column and y_column(s). Do NOT add WHERE portfolio_id — RLS is automatic.
-- title: Descriptive chart title (e.g., "Reviews per Month — Last 6 Months")
-- x_column: The column name to use as the X axis or category label (e.g., "month", "brand", "platform")
-- y_columns: JSON array of objects with "key" (column name), "label" (display name), and optional "color" (hex).
-  Example: [{"key": "count", "label": "Reviews", "color": "#3C83F6"}]
-  For multiple series: [{"key": "positive", "label": "Positive", "color": "#10b981"}, {"key": "negative", "label": "Negative", "color": "#ef4444"}]
-
-IMPORTANT: After calling this tool, you MUST wrap the returned JSON in a markdown chart code block like this:
-```chart
-{paste the JSON string exactly as returned by the tool here}
-```
-Do NOT add any other text inside the chart block. You may add explanatory text before or after the block.
-
-Chart type guidance:
-- bar: comparisons across categories (platform, brand, rating value)
-- line: trends over time (reviews per month, sentiment trend)
-- area: trends over time with volume emphasis
-- pie: proportional breakdown (platform share, sentiment distribution) — uses only the first yKey
-
-SQL tips:
-- For monthly trends: TO_CHAR(date, 'YYYY-MM') AS month
-- For platform counts: SELECT platform, COUNT(*) AS count FROM reviews GROUP BY platform ORDER BY count DESC
-- For sentiment over time: SELECT TO_CHAR(date, 'YYYY-MM') AS month, sentiment, COUNT(*) AS count FROM reviews GROUP BY month, sentiment ORDER BY month""",
-    )

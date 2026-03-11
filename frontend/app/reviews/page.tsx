@@ -167,6 +167,7 @@ export default function ReviewsPage() {
                             <input
                                 type="text"
                                 placeholder="Search reviews..."
+                                data-testid="review-search-input"
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
                                 className="h-8 pl-9 pr-4 w-full bg-background border border-input rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50 transition-all"
@@ -244,7 +245,7 @@ export default function ReviewsPage() {
                             <tbody className="divide-y divide-border">
                                 {reviews.length > 0 ? (
                                     reviews.map((review, i) => (
-                                        <tr key={i} className="bg-card hover:bg-muted/30 transition-colors">
+                                        <tr key={i} data-testid="review-row" className="bg-card hover:bg-muted/30 transition-colors">
                                             <td className="px-6 py-4 whitespace-nowrap text-muted-foreground">
                                                 {new Date(review.date).toLocaleDateString()}
                                             </td>
@@ -328,7 +329,7 @@ export default function ReviewsPage() {
 
                     {/* Summary Footer */}
                     <div className="px-6 py-4 border-t border-border bg-muted/20 text-xs text-muted-foreground flex justify-between items-center">
-                        <span>Showing {reviews.length > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0} to {Math.min(currentPage * itemsPerPage, totalReviews)} of {totalReviews} matching reviews</span>
+                        <span data-testid="reviews-total-count">Showing {reviews.length > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0} to {Math.min(currentPage * itemsPerPage, totalReviews)} of {totalReviews} matching reviews</span>
                     </div>
                 </div>
             </div>
@@ -340,6 +341,7 @@ export default function ReviewsPage() {
                     onClick={closeReviewModal}
                 >
                     <div
+                        data-testid="review-detail-modal"
                         className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200"
                         onClick={(e) => e.stopPropagation()}
                     >

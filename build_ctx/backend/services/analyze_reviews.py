@@ -1,5 +1,6 @@
 import pandas as pd
-from openai import OpenAI
+from google import genai
+from google.genai import types
 import json
 import logging
 import boto3
@@ -106,39 +107,36 @@ def save_checkpoint(job_id, results):
         logger.error(f"Failed to save checkpoint for {job_id}: {e}")
 
 
-def generate_dimensions(reviews_sample, openai_key):
+def generate_dimensions(reviews_sample, api_key):
     """
     Analyzes a sample of reviews to suggest relevant analysis axes.
     """
-    client = OpenAI(api_key=openai_key)
-    
+    client = genai.Client(api_key=api_key)
+
     # Format reviews for prompt
     reviews_text = "\n".join([f"- {r.get('text', '')}" for r in reviews_sample[:10]])
-    
-    prompt = f"""
-    Analyze the following customer reviews and suggest key "Dimensions" or "Topics" that would be valuable to track for this brand (e.g., "Delivery Speed", "Packaging", "Customer Service").
-    
-    Reviews Sample:
-    {reviews_text}
-    
-    Return a JSON array of objects, where each object has:
-    - dimension: The name of the dimension
-    - description: What this dimension covers
-    - keywords: A list of 3-5 related keywords
-    """
-    
+
+    prompt = f"""Analyze the following customer reviews and suggest key "Dimensions" or "Topics" that would be valuable to track for this brand (e.g., "Delivery Speed", "Packaging", "Customer Service").
+
+Reviews Sample:
+{reviews_text}
+
+Return a JSON object with a "dimensions" key containing an array of objects, where each object has:
+- dimension: The name of the dimension
+- description: What this dimension covers
+- keywords: A list of 3-5 related keywords"""
+
     try:
-        completion = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": "You are an expert Customer Experience (CX) taxonomy designer. Your task is to generate a set of 8-14 experience dimensions (topics) that are specifically relevant for analyzing customer reviews. Return ONLY JSON."},
-                {"role": "user", "content": prompt}
-            ],
-            response_format={ "type": "json_object" }
+        response = client.models.generate_content(
+            model="gemini-3-flash-preview",
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                system_instruction="You are an expert Customer Experience (CX) taxonomy designer. Your task is to generate a set of 8-14 experience dimensions (topics) that are specifically relevant for analyzing customer reviews. Return ONLY valid JSON.",
+                response_mime_type="application/json",
+            ),
         )
-        content = completion.choices[0].message.content
-        data = json.loads(content)
-        
+        data = json.loads(response.text)
+
         # Handle if wrapped in a key like "dimensions" or just array
         if "dimensions" in data:
             return data["dimensions"]
@@ -147,14 +145,15 @@ def generate_dimensions(reviews_sample, openai_key):
         else:
             # Try to find array in values
             for v in data.values():
-                if isinstance(v, list): return v
+                if isinstance(v, list):
+                    return v
             return []
-            
+
     except Exception as e:
         logger.error(f"Error generating dimensions: {e}")
         return []
 
-def analyze_reviews(file_path, dimensions, openai_key, portfolio_id, job_id=None, progress_callback=None):
+def analyze_reviews(file_path, dimensions, api_key, portfolio_id, job_id=None, progress_callback=None):
     """
     Reads CSV, batches reviews, and sends to OpenAI for sentiment/topic analysis.
     Merges results back into DataFrame and uploads to S3.
@@ -189,6 +188,12 @@ def analyze_reviews(file_path, dimensions, openai_key, portfolio_id, job_id=None
             
             if review_job_id:
                 db_reviews = db_session.query(Review).filter(Review.job_id == review_job_id).order_by(Review.id).all()
+
+            # Fallback: if no reviews found by job_id, use portfolio_id
+            if not db_reviews and portfolio_id:
+                db_reviews = db_session.query(Review).filter(Review.portfolio_id == portfolio_id).order_by(Review.id).all()
+                if db_reviews:
+                    logger.info(f"DB fallback: using {len(db_reviews)} portfolio-level reviews for analysis (job_id '{review_job_id}' had none)")
         finally:
             db_session.close()
 
@@ -218,8 +223,8 @@ def analyze_reviews(file_path, dimensions, openai_key, portfolio_id, job_id=None
             update_analysis_status(job_id, "error", error_msg)
         return {"error": error_msg}
         
-    client = OpenAI(api_key=openai_key)
-    
+    client = genai.Client(api_key=api_key)
+
     # Analyze all reviews (removed limit for production/full analysis)
     df_sample = df.copy()
     
@@ -318,15 +323,15 @@ Remember: Return ONLY the JSON object. No explanations, no markdown code blocks,
         system_prompt = system_prompt.replace("{dimensions}", dims_list)
         
         try:
-            completion = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                response_format={ "type": "json_object" }
+            response = client.models.generate_content(
+                model="gemini-3-flash-preview",
+                contents=user_prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_prompt,
+                    response_mime_type="application/json",
+                ),
             )
-            content = completion.choices[0].message.content
+            content = response.text
             result = json.loads(content)
             
             with count_lock:
@@ -432,11 +437,23 @@ Remember: Return ONLY the JSON object. No explanations, no markdown code blocks,
                 db_reviews = db_session.query(Review).filter(
                     Review.job_id == review_job_id
                 ).order_by(Review.id).all()
-                
+
+            # Fallback: use portfolio_id if job_id query returns no reviews
+            if not db_reviews and portfolio_id:
+                db_reviews = db_session.query(Review).filter(
+                    Review.portfolio_id == portfolio_id
+                ).order_by(Review.id).all()
                 if db_reviews:
+                    logger.info(f"Save-back fallback: writing analysis to {len(db_reviews)} portfolio-level reviews")
+
+            if db_reviews:
                     # Build a map from index to analysis result
                     result_map = {item['index']: item['result'] for item in analyzed_results}
-                    
+
+                    # Only keep topics whose dimension name exactly matches a predefined dimension.
+                    # This prevents the AI from inventing new dimension names outside the defined list.
+                    valid_dims = {d['dimension'] for d in dimensions} if dimensions else None
+
                     for i, review in enumerate(db_reviews):
                         if i in result_map:
                             result = result_map[i]
@@ -444,11 +461,15 @@ Remember: Return ONLY the JSON object. No explanations, no markdown code blocks,
                             review.emotion = result.get('emotion', 'Indifferent')
                             review.confidence = result.get('confidence', 0.0)
                             topics_list = result.get('topics', [])
-                            
+
+                            # Filter out any AI-hallucinated dimension names
+                            if valid_dims:
+                                topics_list = [t for t in topics_list if t.get('dimension') in valid_dims]
+
                             # Log conversion for debugging
                             if i == 0:
                                 logger.info(f"Saving topics for review 0: {json.dumps(topics_list)}")
-                                
+
                             # SQLAlchemy JSON column expects a list/dict, not a string
                             review.topics = topics_list
                             review.analyzed_at = datetime.utcnow()
@@ -460,17 +481,13 @@ Remember: Return ONLY the JSON object. No explanations, no markdown code blocks,
                     openai_key = os.getenv("OPENAI_API_KEY")
                     if openai_key:
                         try:
-                            from services.embeddings import embed_single_review
-                            embedded_count = 0
-                            for review in db_reviews:
-                                if review.text and review.embedding is None:
-                                    vector = embed_single_review(review.text, openai_key)
-                                    if vector is not None:
-                                        review.embedding = vector
-                                        embedded_count += 1
-                            if embedded_count > 0:
-                                db_session.commit()
-                                logger.info(f"📐 Embedded {embedded_count} reviews for semantic search")
+                            from services.embeddings import embed_reviews_bulk
+                            reviews_needing_embed = [r for r in db_reviews if r.text and r.embedding is None]
+                            if reviews_needing_embed:
+                                embedded_count = embed_reviews_bulk(reviews_needing_embed, openai_key)
+                                if embedded_count > 0:
+                                    db_session.commit()
+                                    logger.info(f"📐 Embedded {embedded_count} reviews for semantic search")
                         except Exception as embed_err:
                             logger.warning(f"Embedding step skipped (non-critical): {embed_err}")
         finally:

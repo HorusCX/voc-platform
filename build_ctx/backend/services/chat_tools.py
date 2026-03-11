@@ -56,13 +56,15 @@ Use this for: review counts by company/platform/rating, sentiment distribution p
 
 Tables available:
 - reviews: id, brand, text, rating, date, platform, sentiment, emotion, confidence, topics (JSON), source_user, analyzed_at
-- companies: id, company_name, website, is_main, portfolio_id
+- companies: id, company_name, arabic_name, website, is_main, portfolio_id
 - dimensions: id, name, description, keywords (JSON), portfolio_id
 
 Key rules:
 - Do NOT add WHERE portfolio_id = X — Row Level Security restricts data automatically
-- reviews.company_id is often NULL; join to companies via: reviews.brand ILIKE companies.company_name
-- Group by reviews.brand directly, not company_id
+- reviews.company_id is now populated for all reviews; prefer joining via: JOIN companies c ON reviews.company_id = c.id
+- When filtering by company/brand name from user input, ALWAYS use wildcard matching on BOTH name columns: (c.company_name ILIKE '%name%' OR c.arabic_name ILIKE '%name%') — this handles partial English names AND Arabic brand names (e.g. "بدجت" matches the arabic_name of Budget)
+- Group by c.company_name or reviews.brand
+- Fallback for any legacy rows: also add OR reviews.brand ILIKE '%name%' if needed
 - To filter topics JSON: use topics::jsonb @> '[{"dimension": "Performance", "mentioned": true}]'
 - For full-text search in review text: use text ILIKE '%keyword%'""",
     )

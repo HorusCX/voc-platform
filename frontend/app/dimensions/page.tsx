@@ -134,6 +134,7 @@ export default function DimensionsPage() {
                         <button
                             onClick={triggerReanalyze}
                             disabled={isReanalyzing}
+                            data-testid="reanalyze-btn"
                             className="bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 disabled:opacity-50"
                         >
                             {isReanalyzing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
@@ -141,6 +142,7 @@ export default function DimensionsPage() {
                         </button>
                         <button
                             onClick={() => openEditModal()}
+                            data-testid="add-dimension-btn"
                             className="bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2"
                         >
                             <Plus className="h-4 w-4" />
@@ -191,7 +193,7 @@ export default function DimensionsPage() {
                                     </thead>
                                     <tbody className="divide-y divide-gray-200 dark:divide-border">
                                         {dimensions.map((dim: Dimension) => (
-                                            <tr key={dim.id} className="bg-card hover:bg-muted/30 transition-colors">
+                                            <tr key={dim.id} data-testid="dimension-row" className="bg-card hover:bg-muted/30 transition-colors">
                                                 <td className="px-6 py-4 font-medium text-foreground">
                                                     {dim.name}
                                                 </td>
@@ -211,6 +213,7 @@ export default function DimensionsPage() {
                                                     <div className="flex items-center justify-end gap-2">
                                                         <button
                                                             onClick={() => openEditModal(dim)}
+                                                            data-testid="dimension-edit-btn"
                                                             className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-accent rounded-md transition-colors"
                                                             title="Edit"
                                                         >
@@ -221,6 +224,7 @@ export default function DimensionsPage() {
                                                                 setEditingDim(dim);
                                                                 setIsDeleteModalOpen(true);
                                                             }}
+                                                            data-testid="dimension-delete-btn"
                                                             className="p-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-md transition-colors"
                                                             title="Delete"
                                                         >
@@ -326,6 +330,7 @@ export default function DimensionsPage() {
                                 </button>
                                 <button
                                     onClick={handleDelete}
+                                    data-testid="delete-confirm-btn"
                                     className="px-4 py-2 text-sm font-medium text-white bg-destructive hover:bg-destructive/90 rounded-md transition-colors"
                                 >
                                     Delete

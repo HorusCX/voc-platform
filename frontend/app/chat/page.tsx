@@ -308,6 +308,7 @@ function ChatPageInner() {
                     <div className="p-4 border-b border-border">
                         <button
                             onClick={handleNewChat}
+                            data-testid="new-chat-btn"
                             className="w-full flex items-center justify-center gap-2 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 rounded-lg p-2 transition-colors text-sm font-medium"
                         >
                             <Plus className="h-4 w-4" />
@@ -324,6 +325,7 @@ function ChatPageInner() {
                             conversations.map(conv => (
                                 <div
                                     key={conv.id}
+                                    data-testid="conversation-item"
                                     onClick={() => setSelectedConversationId(conv.id)}
                                     className={`
                                         group relative flex items-center justify-between p-3 rounded-lg cursor-pointer transition-colors text-sm
@@ -374,7 +376,7 @@ function ChatPageInner() {
                     </div>
 
                     {/* Messages Area */}
-                    <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 bg-muted/10 relative">
+                    <div data-testid="chat-messages" className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 bg-muted/10 relative">
                         {isFetchingHistory ? (
                             <div className="absolute inset-0 flex items-center justify-center bg-background/50 backdrop-blur-sm z-10 transition-all duration-300">
                                 <Loader2 className="h-8 w-8 text-primary animate-spin" />
@@ -382,6 +384,7 @@ function ChatPageInner() {
                         ) : messages.map((message) => (
                             <div
                                 key={message.id}
+                                data-testid={message.role === "user" ? "chat-user-message" : "chat-ai-message"}
                                 className={`flex ${message.role === "user" ? "justify-end" : "justify-start"} group cursor-default`}
                             >
                                 <div className={`flex gap-3 max-w-[85%] ${message.role === "user" ? "flex-row-reverse" : "flex-row"}`}>
@@ -456,7 +459,7 @@ function ChatPageInner() {
                                             </div>
                                         ) : thinkingSteps.length === 0 ? (
                                             /* Fallback dots before first event arrives */
-                                            <div className="bg-card border border-border rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm flex items-center h-[46px]">
+                                            <div data-testid="chat-typing-indicator" className="bg-card border border-border rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm flex items-center h-[46px]">
                                                 <div className="flex space-x-1.5">
                                                     <div className="w-2 h-2 bg-muted-foreground/40 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
                                                     <div className="w-2 h-2 bg-muted-foreground/40 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
@@ -478,6 +481,7 @@ function ChatPageInner() {
                             className="relative flex items-end gap-2 bg-muted/30 border border-border rounded-xl p-2 focus-within:ring-1 focus-within:ring-primary focus-within:border-primary transition-all"
                         >
                             <textarea
+                                data-testid="chat-input"
                                 value={inputValue}
                                 onChange={(e) => setInputValue(e.target.value)}
                                 onKeyDown={(e) => {
@@ -494,6 +498,7 @@ function ChatPageInner() {
                             <div className="pb-1 pr-1">
                                 <button
                                     type="submit"
+                                    data-testid="chat-send-btn"
                                     disabled={!inputValue.trim() || isLoading || !selectedPortfolioId || isFetchingHistory}
                                     className="h-10 w-10 bg-primary text-primary-foreground rounded-lg flex items-center justify-center hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                                 >

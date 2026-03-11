@@ -10,7 +10,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     create_engine, Column, Integer, String, Boolean, Text, DateTime,
-    ForeignKey, JSON, Index, Float, UniqueConstraint, Table, Date
+    ForeignKey, JSON, Index, Float, Table, Date, text
 )
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from dotenv import load_dotenv
@@ -157,6 +157,8 @@ class CompanyModel(Base):
     apple_id = Column(String(255))
     google_maps_links = Column(JSON, default=[])  # Stored as JSON array
     trustpilot_link = Column(String(500))
+    logo_url = Column(String(500))
+    arabic_name = Column(String(255), nullable=True)
     is_main = Column(Boolean, default=False)
     portfolio_id = Column(Integer, ForeignKey("portfolios.id", ondelete="CASCADE"), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -180,6 +182,8 @@ class CompanyModel(Base):
             "apple_id": self.apple_id,
             "google_maps_links": self.google_maps_links or [],
             "trustpilot_link": self.trustpilot_link,
+            "logo_url": self.logo_url,
+            "arabic_name": self.arabic_name,
             "is_main": self.is_main,
             "portfolio_id": self.portfolio_id,
             "created_at": self.created_at.isoformat() if self.created_at else None,
@@ -249,7 +253,6 @@ class Review(Base):
     portfolio = relationship("Portfolio", back_populates="reviews")
 
     __table_args__ = (
-        UniqueConstraint('text', 'source_user', 'date', 'platform', name='uq_review_text_user_date_platform'),
         Index("idx_reviews_job_id", "job_id"),
         Index("idx_reviews_brand", "brand"),
         Index("idx_reviews_portfolio_id", "portfolio_id"),
@@ -334,6 +337,21 @@ def init_db():
     try:
         Base.metadata.create_all(bind=engine)
         logger.info("✅ Database tables created/verified successfully")
+        # Run migrations for new columns on existing tables
+        with engine.connect() as conn:
+            conn.execute(text("ALTER TABLE companies ADD COLUMN IF NOT EXISTS logo_url VARCHAR(500)"))
+            conn.execute(text("ALTER TABLE companies ADD COLUMN IF NOT EXISTS arabic_name VARCHAR(255)"))
+            # Drop old btree constraints on raw text (btree index size limit exceeded for long reviews).
+            # Use a functional unique index on md5(text) instead — md5 is always 32 chars.
+            conn.execute(text("ALTER TABLE reviews DROP CONSTRAINT IF EXISTS uq_review_text_user_date_platform"))
+            conn.commit()
+            conn.execute(text("ALTER TABLE reviews DROP CONSTRAINT IF EXISTS uq_review_text_user_date_platform_portfolio"))
+            conn.commit()
+            conn.execute(text("""
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_review_dedup
+                ON reviews (md5(text), source_user, date, platform, portfolio_id)
+            """))
+            conn.commit()
     except Exception as e:
         logger.error(f"❌ Failed to initialize database: {e}")
         raise
