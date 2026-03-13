@@ -11,13 +11,12 @@ import functools
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
-import logging
-from dotenv import load_dotenv
+from dotenv import load_dotenv  # noqa: E402
 
 # Load environment variables
 load_dotenv()
 
-import ssl
+import ssl  # noqa: E402
 try:
     _create_unverified_https_context = ssl._create_unverified_context
 except AttributeError:
@@ -25,8 +24,8 @@ except AttributeError:
 else:
     ssl._create_default_https_context = _create_unverified_https_context
 
-import boto3
-from botocore.exceptions import NoCredentialsError
+import boto3  # noqa: E402
+from botocore.exceptions import NoCredentialsError  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +43,7 @@ def timed(fn):
 # Import Google Maps Scraper (lazy or direct)
 
 # Import DB models
-from database import Review, SessionLocal
+from database import Review, SessionLocal  # noqa: E402
 
 # Config
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
@@ -98,19 +97,24 @@ def scrape_google_play(brand_name, app_id, since_date=None):
                     app_id, lang='en', country=country, sort=Sort.NEWEST,
                     count=200, continuation_token=continuation_token
                 )
-                if not result: break
-                
+                if not result:
+                    break
+
                 batch_oldest_date = None
                 for r in result:
                     r_date = r['at']
-                    if r_date < limit_date: continue
-                    r['country'] = country 
+                    if r_date < limit_date:
+                        continue
+                    r['country'] = country
                     country_reviews.append(r)
                     batch_oldest_date = r_date
 
-                if batch_oldest_date and batch_oldest_date < limit_date: break
-                if not continuation_token: break
-                if len(country_reviews) > 2000: break
+                if batch_oldest_date and batch_oldest_date < limit_date:
+                    break
+                if not continuation_token:
+                    break
+                if len(country_reviews) > 2000:
+                    break
             
             return country_reviews
         except Exception:
@@ -121,16 +125,20 @@ def scrape_google_play(brand_name, app_id, since_date=None):
         future_to_country = {executor.submit(process_country, country): country for country in COUNTRIES}
         for future in concurrent.futures.as_completed(future_to_country):
             res = future.result()
-            if res: all_reviews.extend(res)
+            if res:
+                all_reviews.extend(res)
 
-    if not all_reviews: return pd.DataFrame()
+    if not all_reviews:
+        return pd.DataFrame()
 
     df = pd.DataFrame(all_reviews)
-    if df.empty: return pd.DataFrame()
+    if df.empty:
+        return pd.DataFrame()
 
     needed_cols = ['content', 'score', 'at', 'userName', 'country']
     for c in needed_cols:
-        if c not in df.columns: return pd.DataFrame()
+        if c not in df.columns:
+            return pd.DataFrame()
 
     df = df[needed_cols]
     df.columns = ['text', 'rating', 'date', 'source_user', 'region']
@@ -142,7 +150,8 @@ def scrape_google_play(brand_name, app_id, since_date=None):
 
 # 2. Apple App Store Scraper
 def scrape_app_store(brand_name, app_id, since_date=None):
-    if not app_id: return pd.DataFrame()
+    if not app_id:
+        return pd.DataFrame()
     logger.info(f"--- 🍎 Starting Apple App Store Scrape for {brand_name} ---")
     limit_date = pd.Timestamp(since_date if since_date is not None else datetime.now() - pd.DateOffset(months=6))
     
@@ -153,11 +162,14 @@ def scrape_app_store(brand_name, app_id, since_date=None):
             url = f"https://itunes.apple.com/{country}/rss/customerreviews/page={page}/id={app_id}/sortBy=mostRecent/json"
             try:
                 resp = requests.get(url, timeout=5)
-                if resp.status_code != 200: return []
+                if resp.status_code != 200:
+                    return []
                 data = resp.json()
                 entries = data.get('feed', {}).get('entry', [])
-                if not entries: return []
-                if isinstance(entries, dict): entries = [entries]
+                if not entries:
+                    return []
+                if isinstance(entries, dict):
+                    entries = [entries]
                 
                 page_reviews = []
                 for entry in entries:
@@ -175,16 +187,19 @@ def scrape_app_store(brand_name, app_id, since_date=None):
                             'brand': brand_name
                         }
                         page_reviews.append(review)
-                    except: continue
+                    except Exception:
+                        continue
                 return page_reviews
-            except: return []
+            except Exception:
+                return []
 
         # Fetch up to 10 pages in parallel
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as page_executor:
             futures = [page_executor.submit(fetch_page, p) for p in range(1, 11)]
             for future in concurrent.futures.as_completed(futures):
                 res = future.result()
-                if res: country_reviews.extend(res)
+                if res:
+                    country_reviews.extend(res)
                 
         return country_reviews
 
@@ -193,10 +208,12 @@ def scrape_app_store(brand_name, app_id, since_date=None):
         future_to_country = {executor.submit(process_country, country): country for country in COUNTRIES}
         for future in concurrent.futures.as_completed(future_to_country):
             res = future.result()
-            if res: all_reviews.extend(res)
+            if res:
+                all_reviews.extend(res)
 
     df = pd.DataFrame(all_reviews)
-    if df.empty: return pd.DataFrame()
+    if df.empty:
+        return pd.DataFrame()
     return df
 
 # MAIN LOGIC
@@ -219,9 +236,11 @@ def save_reviews_to_db(job_id: str, df: pd.DataFrame, portfolio_id: int):
         reviews_data = []
         for _, row in df.iterrows():
             def _clean(val, is_str=True):
-                if pd.isna(val): return "" if is_str else None
+                if pd.isna(val):
+                    return "" if is_str else None
                 s = str(val).strip()
-                if s.lower() in ["nan", "none", "null", "nat"]: return "" if is_str else None
+                if s.lower() in ["nan", "none", "null", "nat"]:
+                    return "" if is_str else None
                 return s
 
             brand_val = str(row.get("brand", ""))
@@ -327,13 +346,15 @@ def run_scraper_service(job_id, brands_list, portfolio_id, progress_callback=Non
 
         for brand in brands_list:
             name = brand.get('name') or brand.get('company_name')
-            if not name: continue
+            if not name:
+                continue
             
             if progress_callback:
                 progress_callback(f"Queuing scraping tasks for {name}...")
             
             android_id = brand.get('android_id', '')
-            if android_id and ':' in android_id: android_id = android_id.split(':')[-1].strip()
+            if android_id and ':' in android_id:
+                android_id = android_id.split(':')[-1].strip()
             apple_id = brand.get('apple_id')
             
             gmaps_links = brand.get('google_maps_links', [])
@@ -342,15 +363,16 @@ def run_scraper_service(job_id, brands_list, portfolio_id, progress_callback=Non
             # Deduplicate links (handling both strings and dicts)
             unique_links = []
             seen_identifiers = set()
-            for l in gmaps_links:
-                if not l: continue
-                identifier = l
-                if isinstance(l, dict):
-                    identifier = l.get('place_id') or l.get('url') or l.get('name')
-                
+            for link in gmaps_links:
+                if not link:
+                    continue
+                identifier = link
+                if isinstance(link, dict):
+                    identifier = link.get('place_id') or link.get('url') or link.get('name')
+
                 if identifier and identifier not in seen_identifiers:
                     seen_identifiers.add(identifier)
-                    unique_links.append(l)
+                    unique_links.append(link)
             gmaps_links = unique_links
             
             # Look up pre-fetched batch dates — no DB call per brand (Fix 3)
@@ -380,7 +402,8 @@ def run_scraper_service(job_id, brands_list, portfolio_id, progress_callback=Non
                 # Build all targets without any DB calls (Fix 4)
                 link_targets = []
                 for link_data in gmaps_links:
-                    if not link_data: continue
+                    if not link_data:
+                        continue
                     if isinstance(link_data, dict):
                         place_id = link_data.get("place_id", "")
                         url = link_data.get("url", "")

@@ -12,7 +12,7 @@ def analyze_url(url: str, gemini_key: str):
     """
     try:
         # Initialize Gemini Client
-        client = genai.Client(api_key=gemini_key)
+        genai.Client(api_key=gemini_key)
         
         import requests
         system_prompt = """
@@ -45,7 +45,7 @@ def analyze_url(url: str, gemini_key: str):
         user_message = f"Here is the company website URL: {url}"
 
         # Use gemini-2.0-flash via REST API to avoid thread deadlocks with the SDK
-        endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={gemini_key}"
+        endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gemini_key}"
         payload = {
             "contents": [{
                 "role": "user",
@@ -64,31 +64,34 @@ def analyze_url(url: str, gemini_key: str):
         logger.info(f"Raw JSON Content (first 200 chars): {content[:200]}...")
 
         data = json.loads(content)
-        
+
         # Format the result to match what the frontend expects (list of companies)
-        # First item is the main company
+        # First item is the main company — accept both "name" and "company_name" keys
+        company_name = data.get("name") or data.get("company_name") or data.get("company")
         output = [{
-            "company_name": data.get("name"),
+            "company_name": company_name,
             "website": url,
             "description": data.get("description"),
-            "android_id": None, 
-            "apple_id": None,   
+            "android_id": None,
+            "apple_id": None,
             "is_main": True
         }]
-        
-        # Add competitors
+
+        # Add competitors — accept both "name" and "company_name" keys
         for comp in data.get("competitors", []):
+            comp_name = comp.get("name") or comp.get("company_name") or comp.get("company")
             output.append({
-                "company_name": comp.get("name"),
-                "website": comp.get("website"), 
+                "company_name": comp_name,
+                "website": comp.get("website"),
                 "description": f"Competitor ({comp.get('region', 'Region Unknown')})",
                 "android_id": None,
                 "apple_id": None,
                 "is_main": False
             })
-            
+
+        logger.info(f"analyze_url: found {len(output) - 1} competitors for {url}")
         return output
 
     except Exception as e:
         logger.error(f"Error analyzing website with Gemini: {e}")
-        return [{"error": str(e)}]
+        raise

@@ -50,6 +50,34 @@ test.describe('Portfolio Creation Stepper', () => {
         await expect(stepper.addCompetitorButton).toBeVisible();
     });
 
+    test('TC-ST-03b: Step 2 — competitor name inputs are populated (not empty)', async ({ authenticatedPage }) => {
+        const mocks = new ApiMocks(authenticatedPage);
+        await mocks.mockAnalyzeWebsite('analyze-job-1');
+        await mocks.mockCheckStatusForAnalyze('analyze-job-1', 1);
+        await openStepper(authenticatedPage);
+
+        const stepper = new StepperPage(authenticatedPage);
+        await stepper.fillWebsiteAndAnalyze('https://calo.app');
+        await expect(stepper.step2Title).toBeVisible({ timeout: 20000 });
+        // Names must match mock data — catches silent backend errors that return empty/null names
+        await expect(stepper.competitorNameInput(0)).toHaveValue('Calo');
+        await expect(stepper.competitorNameInput(1)).toHaveValue('Diet Center');
+    });
+
+    test('TC-ST-09: Step 1 — backend analysis error shows error message, stays on step 1', async ({ authenticatedPage }) => {
+        const mocks = new ApiMocks(authenticatedPage);
+        await mocks.mockAnalyzeWebsite('analyze-job-1');
+        await mocks.mockCheckStatusAnalyzeError('analyze-job-1', 1);
+        await openStepper(authenticatedPage);
+
+        const stepper = new StepperPage(authenticatedPage);
+        await stepper.fillWebsiteAndAnalyze('https://calo.app');
+        // Step 2 must NOT appear
+        await expect(stepper.step2Title).not.toBeVisible({ timeout: 20000 });
+        // An error message must be visible on step 1
+        await expect(authenticatedPage.locator('text=/Analysis failed|failed|error/i').first()).toBeVisible({ timeout: 20000 });
+    });
+
     test('TC-ST-04: Step 2→3 — Confirm Competitors advances to App IDs', async ({ authenticatedPage }) => {
         const mocks = new ApiMocks(authenticatedPage);
         await mocks.mockAnalyzeWebsite('analyze-job-1');

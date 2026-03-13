@@ -13,7 +13,8 @@ logger = logging.getLogger(__name__)
 
 # --- Helper for Status Updates (Matches logic in main.py but imported here for worker usage) ---
 def update_analysis_status(job_id, status, message, processed=0, total=0, error=None, **kwargs):
-    if not job_id: return
+    if not job_id:
+        return
     
     try:
         s3 = boto3.client('s3', region_name=os.getenv("AWS_REGION", "eu-central-1"))
@@ -67,7 +68,8 @@ def load_checkpoint(job_id):
     Loads intermediate results from S3 if they exist.
     Returns a list of previously analyzed results or empty list.
     """
-    if not job_id: return []
+    if not job_id:
+        return []
     
     bucket = os.getenv("S3_BUCKET_NAME", "horus-voc-data-storage-v2-eu")
     key = get_checkpoint_key(job_id)
@@ -89,7 +91,8 @@ def save_checkpoint(job_id, results):
     """
     Saves current list of results to S3.
     """
-    if not job_id: return
+    if not job_id:
+        return
 
     bucket = os.getenv("S3_BUCKET_NAME", "horus-voc-data-storage-v2-eu")
     key = get_checkpoint_key(job_id)
@@ -158,7 +161,6 @@ def analyze_reviews(file_path, dimensions, api_key, portfolio_id, job_id=None, p
     Reads CSV, batches reviews, and sends to OpenAI for sentiment/topic analysis.
     Merges results back into DataFrame and uploads to S3.
     """
-    error = None
     try:
         # Try loading from database first
         from database import Review, SessionLocal

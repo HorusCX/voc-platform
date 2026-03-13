@@ -36,7 +36,7 @@ def _parse_timestamp(timestamp_str: str) -> str:
         # Format: "2024-01-15 12:57:46 +00:00"
         dt = datetime.fromisoformat(timestamp_str.replace(" +00:00", "+00:00").replace(" ", "T", 1))
         return dt.strftime("%Y-%m-%d")
-    except:
+    except Exception:
         return datetime.now().strftime("%Y-%m-%d")
 
 
@@ -251,10 +251,12 @@ def _prepare_payload_item(target: str, location: str, language: str, depth: int)
                 keyword = query_val
         elif "/maps/place/" in target:
             match = re.search(r'/maps/place/([^/]+)', target)
-            if match: keyword = urllib.parse.unquote_plus(match.group(1))
+            if match:
+                keyword = urllib.parse.unquote_plus(match.group(1))
         elif "/maps/search/" in target:
             match = re.search(r'/maps/search/([^/?]+)', target)
-            if match: keyword = urllib.parse.unquote_plus(match.group(1))
+            if match:
+                keyword = urllib.parse.unquote_plus(match.group(1))
 
     if keyword and str(keyword).startswith("place_id:"):
         place_id_found = str(keyword).replace("place_id:", "")
@@ -308,7 +310,8 @@ def scrape_multiple_locations(locations: list, max_reviews_per_location: int = 1
     payloads = []
     for loc in locations:
         target = loc.get("keyword") or loc.get("url") or loc.get("name")
-        if not target: continue
+        if not target:
+            continue
         
         payloads.append(_prepare_payload_item(
             target, 
@@ -331,7 +334,8 @@ def scrape_multiple_locations(locations: list, max_reviews_per_location: int = 1
     # Poll all tasks in parallel
     def poll_and_parse(task_id, target_name):
         items = _poll_for_results(task_id)
-        if not items: return pd.DataFrame()
+        if not items:
+            return pd.DataFrame()
         df = _parse_reviews(items)
         df = _apply_date_filter(df, since_date)
         if not df.empty:

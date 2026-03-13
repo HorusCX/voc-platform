@@ -10,6 +10,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Optional
 
+import bcrypt
 import boto3
 from jose import JWTError, jwt
 from fastapi import Depends, HTTPException, status
@@ -37,8 +38,6 @@ JWT_EXPIRATION_HOURS = 72  # Token valid for 3 days
 S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME", "horus-voc-data-storage-v2-eu")
 AWS_REGION = os.getenv("AWS_REGION", "eu-central-1")
 ADMIN_EMAILS_S3_KEY = "config/admin_emails.json"
-
-import bcrypt
 
 # --- Bearer Token Security ---
 security = HTTPBearer()

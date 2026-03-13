@@ -47,6 +47,19 @@ export class ApiMocks {
         );
     }
 
+    /** check-status: running once, then fails with an error — simulates Gemini API failure */
+    async mockCheckStatusAnalyzeError(jobId = 'analyze-job-1', runningCount = 1) {
+        let calls = 0;
+        await this.page.route('**/api/check-status**', (route) => {
+            if (!route.request().url().includes(jobId)) return route.fallback();
+            calls++;
+            if (calls <= runningCount) {
+                return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'running', message: 'Analyzing website...' }) });
+            }
+            return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'error', message: '404 Client Error: Not Found for url: generativelanguage.googleapis.com' }) });
+        });
+    }
+
     /** check-status: running once, then completed with analyzed companies */
     async mockCheckStatusForAnalyze(jobId = 'analyze-job-1', runningCount = 1) {
         let calls = 0;

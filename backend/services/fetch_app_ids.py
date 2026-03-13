@@ -12,8 +12,10 @@ logger = logging.getLogger(__name__)
 def find_app_links_on_website(url):
     """Scrapes the website for app store links and returns IDs with high resilience."""
     found = {'android_id': None, 'apple_id': None}
-    if not url: return found
-    if not url.startswith('http'): url = 'https://' + url
+    if not url:
+        return found
+    if not url.startswith('http'):
+        url = 'https://' + url
         
     try:
         # Robust headers to mimic a real browser session
@@ -73,16 +75,19 @@ def find_app_links_on_website(url):
             ]
             
             for link in soup.find_all('a', href=True):
-                if found['android_id'] and found['apple_id']: break
+                if found['android_id'] and found['apple_id']:
+                    break
                 href = link['href']
                 
                 # Simple direct patterns
                 if not found['android_id'] and 'play.google.com' in href:
                     match = re.search(r'id=([a-zA-Z0-9_.]+)', href)
-                    if match: found['android_id'] = match.group(1)
+                    if match:
+                        found['android_id'] = match.group(1)
                 elif not found['apple_id'] and ('apps.apple.com' in href or 'itunes.apple.com' in href):
                     match = re.search(r'id(\d+)', href)
-                    if match: found['apple_id'] = match.group(1)
+                    if match:
+                        found['apple_id'] = match.group(1)
                 
                 # Tracker/Redirect detection
                 if not found['android_id'] or not found['apple_id']:
@@ -90,10 +95,12 @@ def find_app_links_on_website(url):
                     # Check for nested play/apple store URLs in params (Invygo style)
                     if not found['android_id']:
                         m = re.search(r'play\.google\.com/store/apps/details\?id=([a-zA-Z0-9_.]+)', decoded_href)
-                        if m: found['android_id'] = m.group(1)
+                        if m:
+                            found['android_id'] = m.group(1)
                     if not found['apple_id']:
                         m = re.search(r'(?:apps|itunes)\.apple\.com(?:/[a-z]{2})?/app(?:/[^/]+)?/id(\d+)', decoded_href)
-                        if m: found['apple_id'] = m.group(1)
+                        if m:
+                            found['apple_id'] = m.group(1)
 
                     # Follow redirect if ID still missing and domain matches OR looks like a local app link (Deliveroo)
                     is_tracker = any(d in href for d in redirect_patterns)
@@ -102,10 +109,6 @@ def find_app_links_on_website(url):
                     if (not found['android_id'] or not found['apple_id']) and (is_tracker or is_local_app_link):
                         # Handle relative links
                         if is_local_app_link:
-                            if not url.endswith('/'):
-                                base_url = url
-                            else:
-                                base_url = url[:-1]
                             # Construct full URL for local redirect, ensuring not to double slash if href starts with /
                             if href.startswith('/'):
                                 full_redirect_url = f"https://{url.split('/')[2]}{href}"
@@ -115,24 +118,30 @@ def find_app_links_on_website(url):
                             full_redirect_url = href
 
                         for ua in [headers['User-Agent'], 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Mobile Safari/537.36']:
-                            if found['android_id'] and found['apple_id']: break
+                            if found['android_id'] and found['apple_id']:
+                                break
                             try:
                                 resp = session.get(full_redirect_url, headers={'User-Agent': ua}, allow_redirects=True, timeout=8)
                                 final_url = unquote(resp.url)
                             except requests.exceptions.InvalidSchema as e:
                                 final_url = unquote(str(e).split("'")[1] if "'" in str(e) else str(e))
-                            except: continue
-                            
+                            except Exception:
+                                continue
+
                             if not found['android_id']:
                                 m = re.search(r'play\.google\.com/store/apps/details\?id=([a-zA-Z0-9_.]+)', final_url)
-                                if not m: m = re.search(r'(?:id|package|android_id|pkg)=([a-zA-Z0-9_.]+)', final_url)
+                                if not m:
+                                    m = re.search(r'(?:id|package|android_id|pkg)=([a-zA-Z0-9_.]+)', final_url)
                                 if m and m.group(1) not in package_blacklist and ('.' in m.group(1) or 'play.google.com' in final_url):
                                     found['android_id'] = m.group(1)
                             if not found['apple_id']:
                                 m = re.search(r'(?:apps|itunes)\.apple\.com(?:/[a-z]{2})?/app(?:/[^/]+)?/id(\d+)', final_url)
-                                if not m: m = re.search(r'(?:id|apple_id|ios_id)=(\d{9,12})', final_url)
-                                if not m: m = re.search(r'id(\d{9,12})', final_url)
-                                if m: found['apple_id'] = m.group(1)
+                                if not m:
+                                    m = re.search(r'(?:id|apple_id|ios_id)=(\d{9,12})', final_url)
+                                if not m:
+                                    m = re.search(r'id(\d{9,12})', final_url)
+                                if m:
+                                    found['apple_id'] = m.group(1)
 
         # 3. Final Deep Fallback: Search the entire raw HTML/Scripts/JSON
         if (not found['android_id'] or not found['apple_id']) and html_content:
@@ -155,7 +164,8 @@ def find_app_links_on_website(url):
                                 found['android_id'] = pkg_id
                                 logger.info(f"Deep fallback found Android ID on {url}: {pkg_id}")
                                 break
-                    if found['android_id']: break
+                    if found['android_id']:
+                        break
             
             if not found['apple_id']:
                 apple_patterns = [
@@ -171,7 +181,8 @@ def find_app_links_on_website(url):
                             found['apple_id'] = app_id
                             logger.info(f"Deep fallback found Apple ID on {url}: {app_id}")
                             break
-                    if found['apple_id']: break
+                    if found['apple_id']:
+                        break
                     
         # 4. HEADLESS BROWSER FALLBACK
         # If still missing IDs, try rendering the page with Playwright
@@ -242,10 +253,12 @@ def fetch_with_browser(url):
                 # Check for IDs in final URL
                 if 'play.google.com' in final_url:
                     m = re.search(r'id=([a-zA-Z0-9_.]+)', final_url)
-                    if m: found['android_id'] = m.group(1)
+                    if m:
+                        found['android_id'] = m.group(1)
                 if 'apps.apple.com' in final_url or 'itunes.apple.com' in final_url:
                     m = re.search(r'id(\d+)', final_url)
-                    if m: found['apple_id'] = m.group(1)
+                    if m:
+                        found['apple_id'] = m.group(1)
                     
                 # Search within the rendered content (using same logic as deep search)
                 if not found['android_id']:
@@ -257,7 +270,8 @@ def fetch_with_browser(url):
                 
                 if not found['apple_id']:
                     matches = re.findall(r'(?:apps|itunes)\.apple\.com(?:/[a-z]{2})?/app(?:/[^/]+)?/id(\d+)', content)
-                    if matches: found['apple_id'] = matches[0]
+                    if matches:
+                        found['apple_id'] = matches[0]
 
             except Exception as e:
                 logger.error(f"Browser error on {url}: {e}")
@@ -274,7 +288,8 @@ def resolve_app_ids(company_list, openai_key=None):
     
     def process_company(company):
         website = company.get('website')
-        if not website: return company
+        if not website:
+            return company
 
         scraped_ids = find_app_links_on_website(website)
         

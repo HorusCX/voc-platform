@@ -68,7 +68,7 @@ def scrape_trustpilot(brand_name, trustpilot_link, since_date=None):
                         # We must rely on HTML parsing for paginated reviews.
                         pass
                     
-                except:
+                except Exception:
                     pass
 
             # HTML Parsing Strategy
@@ -124,7 +124,8 @@ def scrape_trustpilot(brand_name, trustpilot_link, since_date=None):
                     body = content_elem.get_text(strip=True) if content_elem else ""
                     
                     full_text = f"{title}. {body}".strip()
-                    if full_text == ".": full_text = ""
+                    if full_text == ".":
+                        full_text = ""
                     
                     # Extract Author
                     author_elem = article.find('span', attrs={"data-consumer-name-typography": True})

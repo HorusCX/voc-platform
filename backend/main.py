@@ -23,25 +23,25 @@ env_path = Path(__file__).resolve().parent.parent / ".env"
 load_dotenv(dotenv_path=env_path)
 
 # Services
-from services.fetch_company_metadata import analyze_url
-from services.discover_maps_locations import discover_maps_links
-from services.fetch_app_ids import resolve_app_ids
-from services.fetch_reviews import run_scraper_service
-from services.analyze_reviews import generate_dimensions, analyze_reviews
-from services.chat_agent import run_chat_agent, run_chat_agent_streaming
-from fastapi.responses import StreamingResponse
-import queue as stdlib_queue
-from services.embeddings import embed_portfolio_reviews, ensure_pgvector_setup
+from services.fetch_company_metadata import analyze_url  # noqa: E402
+from services.discover_maps_locations import discover_maps_links  # noqa: E402
+from services.fetch_app_ids import resolve_app_ids  # noqa: E402
+from services.fetch_reviews import run_scraper_service  # noqa: E402
+from services.analyze_reviews import generate_dimensions, analyze_reviews  # noqa: E402
+from services.chat_agent import run_chat_agent, run_chat_agent_streaming  # noqa: E402
+from fastapi.responses import StreamingResponse  # noqa: E402
+import queue as stdlib_queue  # noqa: E402
+from services.embeddings import embed_portfolio_reviews, ensure_pgvector_setup  # noqa: E402
 
 # Database & Auth
-from database import init_db, get_db, User, CompanyModel, Review, Dimension, get_user_limits, SessionLocal, Portfolio, user_portfolios, PortfolioInvitation, Conversation, ChatMessage
-from auth import (
+from database import init_db, get_db, User, CompanyModel, Review, Dimension, get_user_limits, SessionLocal, Portfolio, user_portfolios, PortfolioInvitation, Conversation, ChatMessage  # noqa: E402
+from auth import (  # noqa: E402
     hash_password, verify_password, create_access_token,
     get_current_user, is_admin_email
 )
-from services.email_service import send_invitation_email
-from sqlalchemy.orm import Session
-from sqlalchemy import or_, and_, asc, desc, cast, Text, select, func, case, extract
+from services.email_service import send_invitation_email  # noqa: E402
+from sqlalchemy.orm import Session  # noqa: E402
+from sqlalchemy import or_, and_, asc, desc, cast, Text, select, func, case, extract  # noqa: E402
 
 
 
@@ -60,7 +60,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="VoC Backend")
 
 # Debugging NameError
-import database
+import database  # noqa: E402
 print(f"DEBUG: database has PortfolioInvitation: {'PortfolioInvitation' in dir(database)}")
 logger.info(f"DEBUG: database has PortfolioInvitation: {'PortfolioInvitation' in dir(database)}")
 
@@ -73,7 +73,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-import time as _time
+import time as _time  # noqa: E402
 
 @app.middleware("http")
 async def add_timing_header(request, call_next):
@@ -222,36 +222,6 @@ def check_portfolio_access(db: Session, user_id: int, portfolio_id: int):
     if not portfolio:
         raise HTTPException(status_code=404, detail="Portfolio not found")
     return portfolio
-    try:
-        s3 = boto3.client('s3', region_name=AWS_REGION)
-        if S3_BUCKET_NAME:
-            payload = {
-                "status": status, 
-                "message": message, 
-                "job_id": job_id, 
-                "task_type": task_type
-            }
-            payload.update(kwargs)
-            
-            # Map metadata to S3 headers (must be strings)
-            metadata = {
-                "status": str(status),
-                "message": str(message),
-                "task_type": str(task_type)
-            }
-            if kwargs.get("s3_key"):
-                metadata["s3_key"] = str(kwargs["s3_key"])
-            
-            # Write to a centralized status key with metadata
-            s3.put_object(
-                Bucket=S3_BUCKET_NAME,
-                Key=f"job_status/{job_id}",
-                Body=json.dumps(payload),
-                ContentType='application/json',
-                Metadata=metadata
-            )
-    except Exception as e:
-        logger.error(f"Failed to update status in S3 for {job_id}: {e}")
 
 
 
@@ -1280,7 +1250,7 @@ async def api_get_companies(portfolio_id: int, db: Session = Depends(get_db), cu
             Review.portfolio_id == portfolio_id,
             or_(
                 Review.company_id == c.id,
-                and_(Review.company_id == None, func.lower(Review.brand) == func.lower(c.company_name))
+                and_(Review.company_id.is_(None), func.lower(Review.brand) == func.lower(c.company_name))
             )
         ).one()
         d["review_count"] = stats.review_count or 0
@@ -1535,9 +1505,9 @@ def check_status(job_id: str, current_user: User = Depends(get_current_user)):
                         "status": "completed",
                         "result": config_data.get("brands", config_data)
                     }
-                except:
+                except Exception:
                     pass
-            
+
             # Handle s3_key/download_url for scraping jobs
             if data.get("s3_key"):
                 url = generate_presigned_url(data["s3_key"])
@@ -1651,9 +1621,6 @@ async def api_scrap_reviews(request: ScrapRequest, background_tasks: BackgroundT
             
     db.commit()
     logger.info(f"💾 Updated company database for user {current_user.email}")
-    
-    # Convert companies to dict format
-    brands_list = [brand.dict() for brand in request.brands]
     
     # Add to background tasks
     # 3. Add background task for scraping & subsequent analysis
@@ -2030,11 +1997,14 @@ async def get_dashboard_stats(
                 d_stats["brands"][b_name] = {"positive": 0, "negative": 0, "neutral": 0}
             b_stats = d_stats["brands"][b_name]
             if sent == "positive":
-                d_stats["positive"] += 1; b_stats["positive"] += 1
+                d_stats["positive"] += 1
+                b_stats["positive"] += 1
             elif sent == "negative":
-                d_stats["negative"] += 1; b_stats["negative"] += 1
+                d_stats["negative"] += 1
+                b_stats["negative"] += 1
             else:
-                d_stats["neutral"] += 1;  b_stats["neutral"]  += 1
+                d_stats["neutral"] += 1
+                b_stats["neutral"] += 1
 
     dimension_stats = []
     for dim, stats in dim_map.items():
@@ -2126,8 +2096,7 @@ async def api_scrapped_data2(request: dict, current_user: User = Depends(get_cur
     job_id = request.get("job_id")
     portfolio_id = request.get("portfolio_id")
     sample_reviews = request.get("sample_reviews")
-    description = request.get("description")
-    
+
     # Ensure portfolio_id is an integer if provided
     if portfolio_id:
         try:
@@ -2327,9 +2296,10 @@ async def download_result(job_id: str, current_user: User = Depends(get_current_
         query = db.query(Review).filter(
             Review.job_id == search_id
         )
-        
+
         # Verify access to this job's reviews via portfolio
         # (Since reviews are in a portfolio, and user has access to portfolios)
+        first_review = query.first()
         if not first_review:
             raise HTTPException(status_code=404, detail="Result not found or you don't have access")
             
