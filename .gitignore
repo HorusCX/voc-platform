@@ -4,6 +4,7 @@ __pycache__/
 .DS_Store
 .env
 backend/.env
+frontend/.env.local
 node_modules/
 dist/
 build/
@@ -13,7 +14,11 @@ frontend/out/
 backend/data/
 *.log
 playwright-report/
+frontend/playwright-report/
 test-results/
 *.db
 *.sqlite3
 .ruff_cache/
+build_ctx/
+config.json
+.playwright-mcp/
