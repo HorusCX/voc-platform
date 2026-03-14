@@ -39,15 +39,22 @@ export function StepWebsite({ onComplete }: StepWebsiteProps) {
             let attempts = 0;
             const maxAttempts = 90; // 180 seconds (3 mins)
 
+            let consecutiveErrors = 0;
             const pollInterval = setInterval(async () => {
                 attempts++;
                 try {
                     const status = await VoCService.checkStatus(jobId);
+                    consecutiveErrors = 0;
 
                     if (status.status === 'completed' && status.result) {
                         clearInterval(pollInterval);
                         setLoading(false);
                         onComplete(status.result as Company[], jobId);
+                    } else if (status.status === 'completed' && !status.result) {
+                        // Job completed but result is missing — treat as error
+                        clearInterval(pollInterval);
+                        setLoading(false);
+                        setError("Analysis completed but result was not found. Please try again.");
                     } else if (status.status === 'error' || status.status === 'failed') {
                         clearInterval(pollInterval);
                         setLoading(false);
@@ -58,7 +65,13 @@ export function StepWebsite({ onComplete }: StepWebsiteProps) {
                         setError("Analysis timed out. Please try again.");
                     }
                 } catch (e) {
+                    consecutiveErrors++;
                     console.error("Polling error", e);
+                    if (consecutiveErrors >= 5) {
+                        clearInterval(pollInterval);
+                        setLoading(false);
+                        setError("Unable to reach server. Please check your connection and try again.");
+                    }
                 }
             }, 2000);
 

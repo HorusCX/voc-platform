@@ -238,11 +238,7 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
                         {data?.message || "Initializing job..."}
                     </p>
                 </div>
-                <p className="text-xs text-calo-text-secondary mt-6">
-                    This usually takes 3-5 minutes depending on the number of reviews.
-                    <br />You can leave this page open.
-                </p>
-                <div className="mt-4 text-xs text-slate-400 font-mono">Job ID: {jobId}</div>
+<div className="mt-4 text-xs text-slate-400 font-mono">Job ID: {jobId}</div>
             </Card>
         );
     }
@@ -295,13 +291,6 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
                         {analysisProgress?.message || "Gemini is processing your reviews..."}
                     </p>
 
-                    <div className="bg-blue-50 border border-blue-100 p-4 rounded-lg text-left text-sm text-blue-800 max-w-sm mx-auto">
-                        <p className="font-semibold mb-1">ℹ️ Running via Gemini Batch API</p>
-                        <p className="opacity-80">
-                            Typically completes in <strong>15–60 minutes</strong> at 50% lower cost.
-                            You can close this tab — we will email <strong>info@horuscx.com</strong> when the dashboard is ready.
-                        </p>
-                    </div>
                 </Card>
             );
         }
@@ -339,12 +328,6 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
                     <span>100%</span>
                 </div>
 
-                <div className="bg-blue-50 border border-blue-100 p-4 rounded-lg text-left text-sm text-blue-800 max-w-sm mx-auto">
-                    <p className="font-semibold mb-1">ℹ️ This usually takes 2-3 hours.</p>
-                    <p className="opacity-80">
-                        You can close this tab. We will email <strong>info@horuscx.com</strong> when the dashboard is ready.
-                    </p>
-                </div>
             </Card>
         );
     }

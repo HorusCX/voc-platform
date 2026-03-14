@@ -1506,8 +1506,14 @@ def check_status(job_id: str, current_user: User = Depends(get_current_user)):
                         "status": "completed",
                         "result": config_data.get("brands", config_data)
                     }
-                except Exception:
-                    pass
+                except botocore.exceptions.ClientError as e:
+                    if e.response['Error']['Code'] in ('404', 'NoSuchKey'):
+                        # Batch analysis jobs save results directly to DB and don't create a job_config file.
+                        # The analysis is complete — just signal completion so the frontend can refresh.
+                        logger.info(f"No job_config for {job_id} (batch analysis) — returning completed")
+                        return {"status": "completed", "result": data.get("result")}
+                    logger.error(f"❌ Failed to read job_config for {job_id}: {e}")
+                    return {"status": "error", "message": "Analysis result could not be retrieved. Please try again."}
 
             # Handle s3_key/download_url for scraping jobs
             if data.get("s3_key"):

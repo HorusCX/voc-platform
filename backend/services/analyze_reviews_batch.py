@@ -268,7 +268,7 @@ def analyze_reviews_batch(file_path, dimensions, api_key, portfolio_id, job_id=N
             file=tmp_path,
             config=types.UploadFileConfig(
                 display_name=f"voc-batch-{job_id or 'unknown'}",
-                mime_type="application/jsonl",
+                mime_type="jsonl",
             ),
         )
         logger.info(f"Uploaded batch file: {uploaded_file.name}")
@@ -311,7 +311,7 @@ def analyze_reviews_batch(file_path, dimensions, api_key, portfolio_id, job_id=N
             logger.warning(f"Batch poll error (will retry): {poll_err}")
             continue
 
-        state = str(batch_status.state)
+        state = str(batch_status.state).split('.')[-1]
         logger.info(f"Batch job {batch_job.name} state={state} elapsed={elapsed}s")
 
         if job_id:
@@ -331,7 +331,7 @@ def analyze_reviews_batch(file_path, dimensions, api_key, portfolio_id, job_id=N
             update_analysis_status(job_id, "error", msg, mode="batch")
         return {"error": msg}
 
-    final_state = str(batch_status.state)
+    final_state = str(batch_status.state).split('.')[-1]
     if final_state != "JOB_STATE_SUCCEEDED":
         msg = f"Batch job ended with state: {final_state}"
         logger.error(msg)
@@ -346,39 +346,72 @@ def analyze_reviews_batch(file_path, dimensions, api_key, portfolio_id, job_id=N
             0, total_reviews, mode="batch"
         )
 
+    dest = batch_status.dest
+    file_name = getattr(dest, 'file_name', None)
+    inlined = getattr(dest, 'inlined_responses', None)
+    logger.info(f"Batch dest: file_name={file_name}, has_inlined={bool(inlined)}")
+
     analyzed_results = []
     try:
-        output_content = client.files.download(
-            file=batch_status.dest.file_name
-        ).decode('utf-8')
+        if file_name:
+            # File-based output: download and parse JSONL
+            output_content = client.files.download(file=file_name).decode('utf-8')
 
-        for line in output_content.strip().split('\n'):
-            if not line.strip():
-                continue
-            try:
-                item = json.loads(line)
-                idx = int(item['key'])
-                if 'response' in item:
-                    candidate_text = (
-                        item['response']['candidates'][0]['content']['parts'][0]['text']
-                    )
-                    result = json.loads(candidate_text)
-                    analyzed_results.append({"index": idx, "result": result})
-                else:
-                    # error field present — use neutral fallback
-                    logger.warning(f"Batch result for key={item.get('key')} has error: {item.get('error')}")
-                    analyzed_results.append({"index": idx, "result": _neutral_fallback()})
-            except (KeyError, IndexError, ValueError, json.JSONDecodeError) as parse_err:
-                logger.warning(f"Failed to parse batch result line: {parse_err} — line: {line[:200]}")
+            for line in output_content.strip().split('\n'):
+                if not line.strip():
+                    continue
                 try:
-                    fallback_idx = int(json.loads(line).get('key', -1))
-                    if fallback_idx >= 0:
-                        analyzed_results.append({"index": fallback_idx, "result": _neutral_fallback()})
-                except Exception:
-                    pass
+                    item = json.loads(line)
+                    idx = int(item['key'])
+                    resp = item.get('response', {})
+                    if resp.get('candidates'):
+                        candidate_text = resp['candidates'][0]['content']['parts'][0]['text']
+                        result = json.loads(candidate_text)
+                        analyzed_results.append({"index": idx, "result": result})
+                    else:
+                        logger.warning(f"Batch result key={item.get('key')} has no candidates. error={item.get('error') or resp.get('error')}")
+                        analyzed_results.append({"index": idx, "result": _neutral_fallback()})
+                except (KeyError, IndexError, ValueError, json.JSONDecodeError) as parse_err:
+                    logger.warning(f"Failed to parse batch result line: {parse_err} — line: {line[:200]}")
+                    try:
+                        fallback_idx = int(json.loads(line).get('key', -1))
+                        if fallback_idx >= 0:
+                            analyzed_results.append({"index": fallback_idx, "result": _neutral_fallback()})
+                    except Exception:
+                        pass
+
+        elif inlined:
+            # Inlined output: Gemini returned results directly (common for smaller batches)
+            logger.info(f"Parsing {len(inlined)} inlined responses")
+            for idx, item in enumerate(inlined):
+                try:
+                    if item.response and item.response.candidates:
+                        candidate_text = item.response.candidates[0].content.parts[0].text
+                        result = json.loads(candidate_text)
+                        analyzed_results.append({"index": idx, "result": result})
+                    else:
+                        logger.warning(f"Inlined result idx={idx} has error: {getattr(item, 'error', 'unknown')}")
+                        analyzed_results.append({"index": idx, "result": _neutral_fallback()})
+                except (AttributeError, IndexError, ValueError, json.JSONDecodeError) as parse_err:
+                    logger.warning(f"Failed to parse inlined result idx={idx}: {parse_err}")
+                    analyzed_results.append({"index": idx, "result": _neutral_fallback()})
+
+        else:
+            error_msg = f"Batch completed but no output found. dest={dest}"
+            logger.error(error_msg)
+            if job_id:
+                update_analysis_status(job_id, "error", error_msg, mode="batch")
+            return {"error": error_msg}
 
     except Exception as e:
         error_msg = f"Failed to download/parse batch results: {e}"
+        logger.error(error_msg)
+        if job_id:
+            update_analysis_status(job_id, "error", error_msg, mode="batch")
+        return {"error": error_msg}
+
+    if not analyzed_results:
+        error_msg = "Batch parsing produced 0 results — all responses may have failed."
         logger.error(error_msg)
         if job_id:
             update_analysis_status(job_id, "error", error_msg, mode="batch")
