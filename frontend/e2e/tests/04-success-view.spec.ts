@@ -118,6 +118,27 @@ test.describe('Success View — Scraping & Analysis', () => {
         await expect(sv.dimensionRows).toHaveCount(countBefore + 1);
     });
 
+    test('TC-SV-09: Batch-mode analysis shows pulsing waiting card without progress bar', async ({ authenticatedPage }) => {
+        const mocks = new ApiMocks(authenticatedPage);
+        await mocks.mockCheckStatusForScraping('scrape-job-1', 1);
+        await mocks.mockScrappedData();
+        await mocks.mockFinalAnalysis('analysis-job-1');
+        await mocks.mockCheckStatusForBatchAnalysis(2);
+        await reachSuccessView(authenticatedPage);
+
+        const sv = new SuccessViewPage(authenticatedPage);
+        await sv.waitForScrapingComplete(25000);
+        await sv.generateAndWaitForDimensions();
+        await sv.startAnalysisButton.click();
+
+        // Batch heading should appear (no progress bar)
+        await expect(sv.batchAnalysisHeading).toBeVisible({ timeout: 10000 });
+        // Progress bar fill element must NOT be present in batch mode
+        await expect(authenticatedPage.locator('.bg-indigo-600.h-2\\.5.rounded-full')).not.toBeVisible();
+        // After mock completes → final success card appears
+        await expect(authenticatedPage.getByText('VoC Magic is Complete!')).toBeVisible({ timeout: 20000 });
+    });
+
     test('TC-SV-08: Can delete a dimension row and submit analysis', async ({ authenticatedPage }) => {
         const mocks = new ApiMocks(authenticatedPage);
         await mocks.mockCheckStatusForScraping('scrape-job-1', 1);

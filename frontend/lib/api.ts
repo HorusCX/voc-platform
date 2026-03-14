@@ -115,6 +115,7 @@ export interface JobStatus {
     processed?: number;
     total?: number;
     job_id?: string;
+    mode?: 'batch' | 'realtime';
     [key: string]: unknown;
 }
 

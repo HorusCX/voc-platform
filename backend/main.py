@@ -28,6 +28,7 @@ from services.discover_maps_locations import discover_maps_links  # noqa: E402
 from services.fetch_app_ids import resolve_app_ids  # noqa: E402
 from services.fetch_reviews import run_scraper_service  # noqa: E402
 from services.analyze_reviews import generate_dimensions, analyze_reviews  # noqa: E402
+from services.analyze_reviews_batch import analyze_reviews_batch  # noqa: E402
 from services.chat_agent import run_chat_agent, run_chat_agent_streaming  # noqa: E402
 from fastapi.responses import StreamingResponse  # noqa: E402
 import queue as stdlib_queue  # noqa: E402
@@ -276,7 +277,7 @@ def task_final_analysis(job_id: str, file_key: str, dimensions: List[dict], port
         update_job_status(job_id, "running", "Starting AI analysis...", "analysis")
 
         # Call the analysis service
-        result = analyze_reviews(file_key, dimensions, GEMINI_API_KEY, portfolio_id, job_id)
+        result = analyze_reviews_batch(file_key, dimensions, GEMINI_API_KEY, portfolio_id, job_id)
 
         # analyze_reviews returns {"error": ...} on failure instead of raising
         if isinstance(result, dict) and result.get("error"):

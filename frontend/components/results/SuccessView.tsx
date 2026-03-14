@@ -44,6 +44,7 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
         processed: number;
         total: number;
         message: string;
+        mode?: string;
     } | null>(null);
     const [finalResult, setFinalResult] = useState<VoCResponse | null>(null);
 
@@ -96,7 +97,8 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
                     setAnalysisProgress({
                         processed: res.processed || 0,
                         total: res.total || 0,
-                        message: res.message || "Analyzing reviews..."
+                        message: res.message || "Analyzing reviews...",
+                        mode: res.mode as string | undefined,
                     });
                 } else if (res.status === 'error' || res.status === 'failed') {
                     alert(`Analysis failed: ${res.message || "Unknown error"}`);
@@ -277,6 +279,34 @@ export function SuccessView({ jobId, onReset }: SuccessViewProps) {
     // --- ANALYSIS PROGRESS ---
 
     if (analyzing) {
+        const isBatch = analysisProgress?.mode === 'batch';
+
+        if (isBatch) {
+            return (
+                <Card data-testid="analysis-progress" className="max-w-xl mx-auto text-center py-12">
+                    <div className="mb-6">
+                        <Loader2 className="h-20 w-20 text-indigo-600 animate-spin mx-auto" />
+                    </div>
+
+                    <h2 data-testid="batch-analysis-heading" className="text-xl font-bold text-slate-800 mb-2">
+                        Analyzing Reviews...
+                    </h2>
+                    <p className="text-slate-500 mb-6 text-sm animate-pulse">
+                        {analysisProgress?.message || "Gemini is processing your reviews..."}
+                    </p>
+
+                    <div className="bg-blue-50 border border-blue-100 p-4 rounded-lg text-left text-sm text-blue-800 max-w-sm mx-auto">
+                        <p className="font-semibold mb-1">ℹ️ Running via Gemini Batch API</p>
+                        <p className="opacity-80">
+                            Typically completes in <strong>15–60 minutes</strong> at 50% lower cost.
+                            You can close this tab — we will email <strong>info@horuscx.com</strong> when the dashboard is ready.
+                        </p>
+                    </div>
+                </Card>
+            );
+        }
+
+        // Real-time mode: progress bar
         const percent = analysisProgress && analysisProgress.total > 0
             ? Math.round((analysisProgress.processed / analysisProgress.total) * 100)
             : 0;

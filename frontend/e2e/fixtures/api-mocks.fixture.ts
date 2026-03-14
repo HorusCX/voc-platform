@@ -134,6 +134,34 @@ export class ApiMocks {
         );
     }
 
+    /** check-status for batch analysis: mode='batch' N times, then completed.
+     *  Filters by jobId so it only intercepts the analysis job, not the scraping job. */
+    async mockCheckStatusForBatchAnalysis(runningCount = 2, jobId = 'analysis-job-1') {
+        let calls = 0;
+        await this.page.route('**/api/check-status**', (route) => {
+            if (!route.request().url().includes(jobId)) return route.fallback();
+            calls++;
+            if (calls <= runningCount) {
+                return route.fulfill({
+                    status: 200,
+                    contentType: 'application/json',
+                    body: JSON.stringify({
+                        status: 'running',
+                        processed: 0,
+                        total: 200,
+                        message: 'Gemini is processing your reviews... (2m elapsed)',
+                        mode: 'batch',
+                    }),
+                });
+            }
+            return route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({ status: 'completed', message: 'Analysis complete', mode: 'batch' }),
+            });
+        });
+    }
+
     /** check-status for analysis: processing twice, then completed */
     async mockCheckStatusForAnalysis(runningCount = 2) {
         let calls = 0;

@@ -24,6 +24,7 @@ export class SuccessViewPage {
     // Analysis progress
     get analysisProgressCard(): Locator { return this.page.locator('[data-testid="analysis-progress"]'); }
     get analysisHeading(): Locator { return this.page.getByRole('heading', { name: /Analyzing Reviews/i }); }
+    get batchAnalysisHeading(): Locator { return this.page.locator('[data-testid="batch-analysis-heading"]'); }
 
     async waitForScrapingComplete(timeout = 30000) {
         await expect(this.scrapingCompleteHeading).toBeVisible({ timeout });
